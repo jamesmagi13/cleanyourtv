@@ -1,9 +1,14 @@
 # CleanYourTV / Reimagui — continuidade
 
-- Atualização: 2026-10-25 20:40 UTC. Responsável: Codex.
+- Atualização: 2026-10-25 21:41 UTC. Responsável: Codex.
 - Repositório: `jamesmagi13/cleanyourtv`; branch `feat/reimagui-idle-art-v144`.
-- Commit publicado de preparação: `f4be4da2f7c2dbc737ca1d0ee34d586201c0f60d`;
-  os três documentos foram confirmados no GitHub. Publicação destes resultados autorizada em 2026-10-25.
+- Commit publicado dos resultados R2: `27dade59593166f7231728d2d2ebc9284ff37749`;
+  os três documentos foram confirmados no GitHub. Esta atualização documental é apenas local.
+- **Preparação do teste 10%: 100% (5/5)** — origem R2, mudança única, hashes/diff,
+  reversão byte a byte e procedimento de aplicação/restauração manual definidos.
+- **Fase de teste 10% CONCLUÍDA: 100% (5/5 marcos)** — candidato, preflight, escolhas,
+  aplicação/integridade/recarga e validação física concluídos. Utilizador confirmou sucesso:
+  atenuação após 15s, recuperação pelo comando, navegação e pinturas/aplicações acessíveis.
 - **Preparação R2: 100% (4/4). Recolha encerrada com limitação: 83% (5/6 verificações)**.
   Confirmados sistema/HOME, APK, configuração, coleção e reversão JSON; preferências internas recusadas.
 - A percentagem dá peso igual a estas seis verificações; não é progresso global nem prova visual do idle.
@@ -22,11 +27,13 @@
 | Segunda cópia física | RECOMENDADA, não bloqueadora; risco residual aceite pelo utilizador |
 | Sistema / HOME | Alvo esperado, Android 14/API 34, utilizador 0; HOME resolve para com.gathin.tvhome/.MainActivity |
 | Launcher instalado | Versão 2.7, código 8; SHA-256 coincide exatamente com o APK de build preservado na R1 |
-| Configuração recolhida | JSON da TV: 15s/30%, rotação 10 min, `wallpaper_dim=0`; cópia exata e hash remoto coincidentes |
+| Base recolhida R2 | JSON original: 15s/30%, rotação 10 min, `wallpaper_dim=0`; preservado para reversão |
 | Preferências internas | `Permission denied`; pacote não debuggable; sem root, grants ou tentativa de contornar |
 | Coleção na TV | 90 nomes e tamanhos coincidem com R1; legendas presentes e hash coincidente; JPEGs não re-hashados |
 | Reversão preparada | Cópia privada dos bytes recolhidos; hash da configuração estável no início/fim; overrides não copiados |
-| Opacidade 10% | PENDENTE; sem alteração da configuração nesta fase |
+| Configuração ativa | 15s/10%, rotação 10 min e dim zero; integridade técnica e resultado físico aprovados |
+| Reversão disponível | Original exato R2 de 30% preservado privadamente; não executado na retomada aprovada |
+| Seis escolhas | Utilizador confirmou 6 colunas, 1 linha, animações/efeitos ligados, wallpaper/dock a seguir tema (60%) |
 | Cinco listras | RESOLVIDO: características da pintura, conforme correção do utilizador |
 | Spotify Now Playing | FUTURO; não implementado |
 
@@ -35,11 +42,24 @@
 - Preparação publicada com apenas os três documentos aprovados; ficheiros e commit verificados no remoto.
 - Recolha R2 feita entre 20:21 e 20:25 UTC. Dados brutos, endpoint, configuração e hashes
   individuais mantidos numa pasta privada nova, ignorada pelo Git, com permissões 0700/0600.
-- Preparado manifesto privado de evidências e cópia exata para reversão; nenhum candidato de 10% criado.
-- HOME é o launcher esperado, mas outra aplicação estava à frente; não houve navegação nem ensaio visual.
+- Preparado manifesto privado de evidências R2 e cópia exata para reversão.
+- Na recolha R2 outra aplicação estava à frente; na retomada atual Home foi recriado conforme autorização.
 - Nenhuma imagem extra identificada; verificação de presença/tamanho não equivale a hash dos 90 JPEGs.
 - A leitura normal de launcher_settings.xml foi recusada; essa parte foi encerrada sem privilégios adicionais.
-- Configuração persistida coincide com a candidata R1; o valor 10% continua por aplicar.
+- Base original R2 coincide com a candidata R1; a configuração atual difere só em opacidade 10%.
+- Candidato criado a partir dos bytes exatos R2, mantendo formato, tamanho e todas as outras
+  chaves. Apenas idle_art_mode_opacity mudou de 30 para 10; original preservado e hashes verificados.
+- Acrescentados diff de uma linha e ficha privada para anotar as seis escolhas visíveis antes do teste.
+- Hash remoto revalidado imediatamente antes da escrita: igual ao original R2.
+  Candidato relido completo: 819 bytes, SHA correto, JSON válido e só uma opção diferente.
+- Recarga recusada: `Unknown option: --activity-new-task`, opção inválida proposta pelo agente.
+  Primeira tentativa revertida; o utilizador confirmou Home normal e autorizou uma única retomada.
+- Retomada de 21:29–21:32 UTC: hash original novamente confirmado, candidato relido completo;
+  recriação com `-f 0x10008000` executada uma vez, retorno 0/WARM, nova Activity e foco em 1,1s.
+- Pós-recarga: hash do candidato, 90 nomes/tamanhos, legendas e HOME predefinido confirmados.
+  Sem reversão nesta retomada. Utilizador confirmou o teste físico concluído com sucesso.
+- Encerramento: manter o candidato de 10% como configuração ativa e o original de 30%
+  como opção de reversão. Nenhuma nova operação ADB ou alteração na TV após a confirmação.
 - Histórico dos testes preservado, sem reexecução: 874 testes em 90,820s;
   3 falhas, 12 erros e 12 ignorados.
   Os 15 tracebacks finais estão completos, apesar da truncagem noutra parte da saída.
@@ -50,8 +70,9 @@
 - Nenhuma correção de produção, novo teste ou skip justificado; eventual repetição futura
   limitada aos casos afetados, em condições adequadas e com autorização própria.
 - Atualizados este relatório, o [anexo R2](REIMAGUI_R2_PREPARATION.md) e o plano R1 com resultados.
-  Nenhuma instalação, build, escrita na TV, alteração de HOME/permissões, reboot ou restauração.
-  Esta entrega documental foi autorizada; a preparação local do candidato será registada a seguir.
+  Primeira tentativa: candidato e reversão; retomada autorizada: uma escrita dirigida do candidato.
+  Sem instalação, build, alteração de HOME/permissões, force-stop, reboot ou escrita nas imagens.
+  Publicação do encerramento autorizada para apenas estes três documentos; verificar o remoto após push.
 - Resultados documentais anteriores: 5 testes de links e 12 de AGENTS.md aprovados em R1.
 - [Plano R1](REIMAGUI_R1_RECOVERY.md) atualizado com a decisão e os resultados de reversão JSON.
   Backups, 90 pinturas e legendas preservados; nenhuma cópia repetida ou ficheiro privado publicado.
@@ -65,8 +86,9 @@
   A designação Reimagui v1.4.6 é histórica; hash não fornece um commit ausente nos metadados VCS.
 - O backup original de `config.json` não contém Idle Art; a candidata 15s/30% é distinta.
 - Não usar o aplicador de tema completo para alterar opacidade: limpa as pinturas.
-- Mudar `config.json` pode invalidar seis overrides. Há reversão exata do JSON,
-  mas não das preferências inacessíveis; acordar verificação/reposição das opções antes do teste.
+- Mudar `config.json` pode invalidar seis overrides. Escolhas registadas antes do teste;
+  nenhum problema reportado no resultado físico. Reversão exata do JSON disponível,
+  sem promessa de reconstruir preferências internas que não puderam ser lidas.
 - Até `content read` pode criar diretórios pelo provider; excluído do roteiro estrito.
 - O acesso direto ao tema funcionou; acesso às preferências internas foi recusado.
   Não instalar outro APK para obter acesso. Nenhum helper do launcher foi identificado como ativo.
@@ -74,17 +96,16 @@
   launcher e contexto observado; não exigir instrumentação ou reinício só para eliminar essa dúvida.
 - Preservar HOME, acesso ADB, vídeo, Live TV, HDMI e Bluetooth antes de intervenções.
 - As listras deixam de ser hipótese de defeito gráfico; não há investigação pendente.
+- Pendentes nesta fase: ensaios prolongados de rotação/desempenho e nova validação de
+  vídeo/Live TV/HDMI/Bluetooth/reinício; não executados nem necessários para aprovar o teste dirigido.
 
 ## GO / NO-GO e próximo passo
 
-- **GO técnico condicionado para planear o teste 10%:** launcher e JSON identificados,
-  reversão JSON pronta; explicitar o risco dos overrides não recolhidos e acordar como tratar alterações.
-- **NO-GO execução agora:** falta autorização específica para aplicar 10%; nada foi aplicado.
+- **GO / fase concluída:** JSON 10%, nova Home focada, coleção preservada e sucesso físico
+  confirmado pelo utilizador. Manter 10%; original 30% disponível se for necessário reverter.
 - Segunda cópia física e correspondência exata APK/commit não são requisitos bloqueadores.
-- Próximo passo: preparar o diff de uma chave a partir da cópia R2, sem aplicar;
-  apresentar aplicação dirigida e reversão para autorização específica de escrita na TV.
-- Autorização pendente: uso de volume externo, alterações na TV, fase 30→10 e novo
-  novos envios posteriores a esta entrega documental. Nenhuma alteração na TV autorizada.
+- Próximo passo autorizado: publicar apenas estes três documentos e verificar correspondência no GitHub.
+  Depois, aguardar definição da próxima fase. Volume externo e outras operações exigem autorização própria.
 
 ## Rotina de sincronização
 

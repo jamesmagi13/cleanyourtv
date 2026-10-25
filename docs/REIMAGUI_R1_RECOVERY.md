@@ -72,8 +72,11 @@ qualquer uso e não foi executado nesta fase.
 
 - **R1 local: GO:** inventário, hashes originais, cópia privada e hashes copiados completos.
 - **Proteção independente: RECOMENDADA:** segunda cópia não realizada; risco aceite pelo utilizador.
-- **Base e reversão JSON: CONFIRMADAS NA R2.** Preferências internas recusadas; definir
-  o tratamento das opções afetadas antes de um teste. A escrita do provider trunca o ficheiro.
-- **Leitura R2: AUTORIZADA. Execução 10%: NO-GO:** a autorização não permite alterar opacidade.
-- Para implementar, confirmar a base e a reversão e obter autorização específica.
+- **Base e reversão JSON: CONFIRMADAS NA R2.** Preferências internas recusadas; as seis
+  escolhas visuais foram registadas antes do teste. A escrita do provider trunca o ficheiro.
+- **Teste dirigido 10%: AUTORIZADO**, incluindo reversão e recriação controlada de Home;
+  primeira tentativa revertida; única retomada corrigida autorizada e executada com
+  nova Activity/foco e JSON 10% verificados. Teste físico confirmado com sucesso pelo utilizador;
+  fase concluída, manter 10% ativo e o original exato de 30% como reversão privada.
+- Nenhuma nova alteração autorizada pelo encerramento; aguardar definição da próxima fase.
   Não exigir segunda cópia física nem identidade por commit do APK para uma mudança de configuração.

@@ -1,10 +1,12 @@
 # Reimagui — R2: classificação histórica e verificação passiva proposta
 
-Atualização: 2026-10-25 20:27 UTC. Preparação publicada: `f4be4da2f7c2dbc737ca1d0ee34d586201c0f60d`.
+Atualização: 2026-10-25 21:41 UTC. Resultados R2 publicados: `27dade59593166f7231728d2d2ebc9284ff37749`.
 [Continuidade](CODEX_STATUS.md) · [Recuperação R1](REIMAGUI_R1_RECOVERY.md).
 Nenhum teste repetido em R2; recolha ADB autorizada e concluída apenas com leituras.
-Backups e código de produção preservados. Resultados na secção 5, ainda sem publicação;
-o utilizador exige nova aprovação antes do push desta revisão.
+Backups e código de produção preservados. Resultados da secção 5 publicados nos três documentos
+aprovados; preparação e resultados das secções 6–8 são locais, ainda sem novo commit/push.
+Primeira tentativa revertida; única retomada corrigida executada, com JSON 10%, nova
+Activity e foco confirmados. Teste físico aprovado pelo utilizador; fase concluída, secções 7/8.
 Decisão do utilizador em 2026-10-25: segunda cópia física recomendada, não bloqueadora;
 o risco residual no disco do Mac foi compreendido e aceite. Não repetir a R1 nem os testes classificados.
 
@@ -248,8 +250,10 @@ activity, settings, JSON ou XML: contêm informação privada; publicar apenas c
    foco inconsistente, falha de reposição a 100% ou alteração inesperada das opções.
    Recuperação de HOME segue a R1 se necessário; não reinstalar APKs por rotina.
 
-Na recolha R2, foi criada no Mac uma cópia exata para reversão, não um candidato de 10%.
-Nenhuma configuração da TV foi alterada nem reversão executada. A eventual aplicação será dirigida apenas à configuração,
+Na recolha R2, foi criada uma cópia exata para reversão. Depois, o candidato de 10% foi
+preparado e testado conforme as secções 6–8: primeira tentativa revertida para 30%,
+retomada concluída e aprovada fisicamente com 10% ativo.
+A aplicação é dirigida apenas à configuração,
 nunca por `theme.sh`, reset do tema ou substituição de APK.
 
 ## 4. Critérios para avançar
@@ -260,16 +264,17 @@ nunca por `theme.sh`, reset do tema ou substituição de APK.
 - **Leitura da TV:** autorizada para R2, incluindo ligação ao alvo confirmado. Não autoriza escrita.
 - **Segunda cópia física:** recomendada; ausência não bloqueia, conforme decisão do utilizador.
 - **Base confirmada:** pacote/versão/hash do launcher e configuração persistida recolhidos.
-- **GO técnico condicionado para planear o teste:** há reversão JSON; falta acordar o
-  tratamento das escolhas internas não recolhidas, caso o teste provoque alterações nessas opções.
-- **NO-GO execução 10% agora:** nenhuma autorização de escrita/aplicação foi dada.
+- **Preparação cumprida:** reversão JSON disponível e seis escolhas visuais registadas
+  pelo utilizador antes da escrita; preferências internas continuam inacessíveis.
+- **Teste concluído:** JSON 10% e recarga verificados; utilizador confirmou atenuação após
+  15s, recuperação pelo comando, navegação e acesso às pinturas/aplicações.
 - Hash do APK, correspondência por commit e certeza absoluta sobre memória não são
   bloqueadores autónomos; resolver apenas divergências concretas relevantes à mudança.
-- Preservar os backups e o [plano R1](REIMAGUI_R1_RECOVERY.md); nenhuma implementação iniciada.
+- Preservar os backups e o [plano R1](REIMAGUI_R1_RECOVERY.md); nenhuma fase seguinte iniciada.
 
 ## 5. Resultados da recolha passiva de 2026-10-25
 
-Preparação publicada no commit acima com apenas os três documentos aprovados; ficheiros
+Resultados publicados no commit acima com apenas os três documentos aprovados; ficheiros
 remotos verificados por SHA Git. A recolha ocorreu entre 20:21 e 20:25 UTC, reutilizando
 a única ligação ADB já autorizada. Não foi preciso executar `adb connect`.
 As consultas de identidade usaram `getprop` apenas para modelo, versão Android, SDK e
@@ -306,6 +311,168 @@ reversão contém só o JSON; não garante restaurar overrides apagados pela mud
 Antes de um teste futuro, explicitar essa limitação e acordar verificação/reposição
 de colunas, linhas, animações, efeitos, escolha de wallpaper e opacidade do dock.
 
-Nenhuma leitura adicional será usada para contornar a recusa de preferências. O próximo
-passo é rever estes resultados e autorizar separadamente o eventual teste de uma chave;
-não executar `theme.sh`, reinstalação ou limpeza de dados como atalho.
+Nenhuma leitura adicional será usada para contornar a recusa de preferências. O tratamento
+das seis escolhas e o teste posterior estão nas secções 6–8; não executar `theme.sh`,
+reinstalação ou limpeza de dados como atalho. O teste está concluído; aguardar a próxima fase.
+
+## 6. Candidato e procedimento de teste — tentativa e reversão na secção 7
+
+### Artefactos preparados e prova da alteração única
+
+- Origem: bytes exatos da configuração recolhida na R2, validados contra o hash remoto.
+- Candidato e original guardados em pasta privada nova, fora dos ficheiros versionados;
+  ambos têm 819 bytes. A modificação altera apenas um byte, de `3` para `1` no valor 30.
+- JSON válido, mesmas chaves, ordem, espaços e quebras de linha; diferença semântica
+  exclusivamente em `idle_art_mode_opacity`. Preservados 15s, rotação 10 min, dim zero
+  e todas as outras configurações. Nenhum ficheiro da R1/R2 foi sobrescrito.
+- Hashes do original/candidato, offset e verificação de origem guardados no manifesto
+  privado; original e reversão são idênticos. Não repetir auditorias ou testes anteriores.
+
+```diff
+-  "idle_art_mode_opacity": 30
++  "idle_art_mode_opacity": 10
+```
+
+### Seis escolhas que a assinatura do tema pode repor
+
+São exatamente as removidas por [syncThemeChoices](../launcher/app/src/main/java/com/gathin/tvhome/Config.java#L666).
+As preferências internas continuam inacessíveis; os valores do JSON não provam os overrides atuais.
+
+| Chave | Anotar antes de escrever | Como restaurar manualmente, só se mudar |
+|---|---|---|
+| `columns` | Número selecionado | Definições do launcher → Colunas → mesmo número |
+| `rows_below_dock` | 0, 1, 2 ou 3 linhas | Linhas abaixo do dock → mesmo número |
+| `animations` | On/Off | Animações → estado anotado; fazer antes dos efeitos |
+| `advanced_effects` | On/Off efetivo | Efeitos avançados → estado anotado, depois de Animações |
+| `wallpaper_choice` | Theme default, ficheiro ou None | Wallpaper → Theme default, ficheiro anotado ou None |
+| `dock_opacity` | Botão selecionado ou seguir tema | Dock band opacity → mesmo botão; se seguia tema, não escolher aproximação |
+
+Procedimento curto para a pessoa, antes de qualquer escrita: no Home, manter OK na
+engrenagem e escolher Definições do launcher; anotar os seis valores numa linha ou
+fotografia privada e sair com Back sem alterar opções. Após o teste ou reversão,
+abrir o mesmo menu e repor apenas diferenças; voltar com Back.
+O seletor de wallpaper tem uma opção própria Theme default, sem reset global.
+
+**Dock:** a base JSON tem 60%, mas a UI oferece só 100/70/50/30
+([opções](../launcher/app/src/main/java/com/gathin/tvhome/LauncherSettingsActivity.java#L28)).
+Se seguia o tema, 60% é preservado no JSON; não selecionar 50/70 por aproximação.
+**Não usar Follow theme/reset global:** também limpa Open on start, que não pertence
+a estas seis chaves ([ação global](../launcher/app/src/main/java/com/gathin/tvhome/LauncherSettingsActivity.java#L131)).
+O objetivo é repor escolhas efetivas; não se promete reconstruir o XML privado original.
+
+### Aplicação dirigida proposta — requer aprovação específica
+
+1. Guardar as seis escolhas visíveis, fechar menus e combinar o teste físico com a pessoa.
+   Validar hashes locais do candidato e original. Antes da escrita, confirmar que o hash
+   remoto de config.json ainda é o da R2. Se diferir, parar: não sobrescrever uma base nova.
+2. Enviar os 819 bytes diretamente ao provider, sem pasta de tema ou ficheiro temporário na TV:
+
+```sh
+adb -s '<tv-endpoint>' shell -T 'content write --uri content://com.gathin.tvhome.theme/config.json' < '<private-candidate-file>'
+```
+
+3. Ler de volta config.json e calcular SHA-256. Só prosseguir se os bytes forem exatamente
+   os do candidato e o JSON válido. Verificar presença dos 90 nomes/tamanhos e hash das
+   legendas; não repetir o hash integral dos 90 JPEGs. Não escrever theme_revision nem imagens.
+4. Recriar **apenas a atividade Home**, para reler o JSON. A escrita não recarrega por si
+   a configuração em memória. Comando corrigido após a recusa da secção 7, executado
+   uma vez na retomada autorizada da secção 8; sem force-stop, reboot ou mudança da HOME:
+
+```sh
+adb -s '<tv-endpoint>' shell am start -W -f 0x10008000 -a android.intent.action.MAIN -c android.intent.category.HOME -n com.gathin.tvhome/.MainActivity
+```
+
+Esta ação substitui a tarefa/atividade do launcher; não limpa os dados da aplicação.
+É uma operação de ciclo de vida; na retomada autorizada produziu uma nova Activity focada.
+Confirmar atividade focada e UI pronta com prazo de 10s; a resposta de start isolada não basta.
+Não recorrer automaticamente a force-stop ou a outro comando se o arranque for recusado.
+
+5. Teste físico curto: deixar Home 15s sem interação, observar o fade da navegação para
+   10%, pressionar uma direção no comando real e confirmar retorno imediato a 100% com
+   navegação normal. Abrir uma aplicação habitual e regressar a Home. Comparar as seis
+   escolhas e repor diferenças se necessário. Relógio e pintura não devem ser avaliados
+   como navegação atenuada. Não repetir auditoria completa de vídeo/HDMI/Bluetooth sem sintoma.
+
+### Reversão e critérios de paragem
+
+- Reverter se a pessoa rejeitar legibilidade, se o foco/primeira tecla falhar, houver
+  alterações inesperadas, Home não ficar pronto ou a leitura de retorno não coincidir.
+- O provider escreve com truncagem, não atomicamente. Falha de transferência exige
+  leitura de estado e, se necessário, uma tentativa de reposição dos bytes originais.
+  Não recriar Home sobre um JSON incompleto e não fazer tentativas de escrita em ciclo.
+- Reposição dirigida, sujeita à mesma autorização de teste/reversão:
+
+```sh
+adb -s '<tv-endpoint>' shell -T 'content write --uri content://com.gathin.tvhome.theme/config.json' < '<private-original-file>'
+```
+
+- Confirmar hash original, recriar a atividade pelo comando acima e verificar 30% após
+  15s; repor manualmente só as escolhas divergentes. Se a escrita/recriação for recusada,
+  parar e comunicar, sem permissões adicionais, reinstalação, limpeza de dados ou scripts de tema.
+- Teste, recriação controlada de Home e reversão autorizados em 2026-10-25. Antes da escrita,
+  o utilizador exige confirmação/registo das seis escolhas e TV disponível para observação.
+  O utilizador confirmou as seis escolhas, TV e comando disponíveis antes da aplicação.
+- Preflight de 20:55 UTC confirmou alvo/utilizador e hash da TV igual ao original R2.
+  Candidato e original continuam com 819 bytes e uma única diferença de um byte/chave.
+  O hash foi novamente confirmado imediatamente antes da escrita; resultado abaixo.
+
+## 7. Tentativa autorizada, falha de sintaxe e reversão verificada
+
+- Antes de escrever, o utilizador confirmou: 6 colunas, 1 linha, animações e efeitos
+  ligados, wallpaper no padrão do tema e dock a seguir tema (60%, sem override).
+- Hash remoto confirmado igual ao original R2 imediatamente antes de escrever. Foram
+  escritos só os 819 bytes do candidato em config.json; leitura completa de retorno,
+  hash, tamanho e JSON válidos, com diferença semântica exclusiva em opacidade 30→10.
+- A pessoa foi avisada antes da recarga e orientada sobre 15s de inatividade e uma tecla
+  direcional real para despertar; não foi usada injeção de teclas.
+- A recarga proposta pelo agente falhou com saída 255:
+  `java.lang.IllegalArgumentException: Unknown option: --activity-new-task`.
+  A exceção ocorreu na análise dos argumentos, antes do arranque da atividade. Foi um
+  erro na preparação do comando; não é evidência de falha do launcher ou de integridade.
+- Foi executada uma única reversão dirigida. Leitura completa e SHA confirmaram os
+  bytes originais (819), JSON válido e opacidade 30. Não houve nova tentativa de arranque.
+- Após a reversão: 90 nomes/tamanhos esperados, zero divergências e hash das legendas
+  igual à R1; sem escrita em imagens/APKs, force-stop, reboot ou alteração da HOME.
+- Outra atividade estava à frente na consulta final; não foi forçado o retorno a Home.
+  Depois, o utilizador confirmou Home normal e autorizou a única retomada da secção 8.
+- **Conclusão da tentativa: 80% (4/5 marcos)** — candidato, preflight, escolhas e escrita/
+  integridade cumpridos; recarga e teste físico de 10% não concluídos. Estado persistido: 30%.
+  Não declarar o teste visual aprovado ou a configuração 10% mantida.
+
+Alternativa corrigida: o comando de recarga da secção 6 usa `-f 0x10008000`.
+A ajuda real de `am` aceita `-f <FLAG>` e não contém `--activity-new-task`.
+As constantes foram confirmadas no android.jar do SDK 34 local:
+NEW_TASK=`0x10000000`, CLEAR_TASK=`0x00008000`, combinação=`0x10008000`.
+Essa alternativa só foi executada depois de apresentada e expressamente autorizada,
+com revalidação imediata do hash original, na retomada da secção 8.
+Evidências completas e configurações permanecem privadas; documentação local sem novo push.
+
+## 8. Única retomada corrigida — aplicada e aprovada fisicamente
+
+- Utilizador confirmou Home normal após a reversão e autorizou uma única tentativa
+  com `-f 0x10008000`; mantidas as seis escolhas registadas e os limites de escrita.
+- Às 21:29 UTC, alvo/utilizador e hash original confirmados; logo a seguir, escrita
+  exclusiva do candidato. Retorno completo: 819 bytes, JSON válido, SHA-256 coincidente,
+  mesmas chaves e diferença semântica apenas `idle_art_mode_opacity: 30→10`.
+- A pessoa foi avisada cinco segundos antes da recarga. O comando corrigido foi executado
+  uma vez: retorno 0, Status ok, LaunchState WARM, sem aviso de reutilização da Activity.
+  Comparação dos ActivityRecords confirmou uma nova MainActivity focada em cerca de 1,1s.
+- Pós-recarga às 21:32 UTC: hash do candidato mantido, 90 nomes/tamanhos esperados,
+  hash das legendas igual à R1 e HOME predefinido inalterado. Sem escrita em imagens/APKs,
+  force-stop, reboot, mudança de serviços ou nova tentativa automática de arranque.
+- Estado persistido **10%**; não houve reversão nesta retomada. O original exato de 30%
+  permanece preparado para qualquer anomalia reportada, conforme autorização.
+- **100% (5/5 marcos):** verificações preparatórias, integridade/recarga e confirmação
+  física concluídas. O utilizador confirmou expressamente o sucesso do teste: transparência
+  esperada após 15s, recuperação da visibilidade pelo comando, navegação funcional e
+  pinturas/aplicações acessíveis. Não foram reportadas anomalias nem pedida reversão.
+- Confirmação física é evidência do utilizador; as leituras técnicas foram feitas antes,
+  sem alegar medição instrumental de alpha ou testes adicionais de HDMI/Bluetooth.
+- Conforme decisão de encerramento, manter **10% ativo**, com 15s, rotação 10 min e dim
+  zero preservados. Candidato e original exato de 30% mantidos privadamente, sem os mover
+  ou sobrescrever. A reversão não foi usada nesta retomada aprovada.
+- Pendentes, sem execução nesta fase: ensaios prolongados de rotação/desempenho e nova
+  validação de vídeo, Live TV, HDMI, Bluetooth e reinício. Não condicionam o teste dirigido aprovado.
+- Não houve injeção de teclas nem repetição da suíte. Nenhum comando ADB executado após
+  a confirmação física. Utilizador autorizou commit/push apenas dos três documentos de
+  continuidade; verificar a correspondência remota e aguardar a definição da próxima fase.
