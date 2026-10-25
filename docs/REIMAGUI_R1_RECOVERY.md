@@ -3,6 +3,10 @@
 Atualizado em 2026-10-25. [Estado de continuidade](CODEX_STATUS.md). Plano documental;
 nenhum passo nesta página foi executado na TV durante a fase R1.
 
+Decisão posterior do utilizador, em 2026-10-25: a segunda cópia em disco físico separado
+é **recomendada, não bloqueadora**. O risco residual de perda do volume do Mac foi
+compreendido e aceite; as cópias locais verificadas e os originais permanecem protegidos.
+
 ## Inventário e validação
 
 - O backup principal contém 90 JPEGs 1920×1080, `captions.txt`, `config.json`, um manifesto
@@ -19,7 +23,7 @@ nenhum passo nesta página foi executado na TV durante a fase R1.
 - Outra seleção local contém as mesmas 90 pinturas por hash. Todas as cópias atuais estão
   no mesmo volume físico do Mac; não resistem à sua falha.
 
-## Segunda cópia independente
+## Segunda cópia independente — recomendada
 
 - Exige outro **disco físico**, capacidade livre superior a 37 MB com margem, encriptação
   e local seguro. Uma pasta, partição ou imagem de disco no mesmo Mac não cumpre o critério.
@@ -28,6 +32,7 @@ nenhum passo nesta página foi executado na TV durante a fase R1.
 - Confirmar leitura de uma amostra de pinturas e da configuração, desligar/guardar o disco
   quando não estiver em uso e registar data e local apenas em notas privadas.
 - Não usar cloud nem volumes externos sem autorização específica do utilizador.
+- A ausência desta cópia não impede a recolha passiva nem, por si só, uma alteração futura.
 
 ## Recuperação numa sessão futura autorizada
 
@@ -63,8 +68,9 @@ qualquer uso e não foi executado nesta fase.
 ## GO / NO-GO para a mudança 30% → 10%
 
 - **R1 local: GO:** inventário, hashes originais, cópia privada e hashes copiados completos.
-- **Proteção independente: NO-GO:** falta cópia verificada em outro disco físico.
-- **Base ativa: NO-GO:** APK e `config.json` efetivos na TV e preferências ainda não
-  verificados; a mudança pode ter efeitos indiretos e a escrita do provider trunca o ficheiro.
-- **Execução: NO-GO:** não há autorização para contactar a TV ou alterar opacidade.
-- Só avançar após resolver estes bloqueadores e obter autorização específica para a fase seguinte.
+- **Proteção independente: RECOMENDADA:** segunda cópia não realizada; risco aceite pelo utilizador.
+- **Base e reversão: PENDENTES:** confirmar launcher instalado, recolher a configuração
+  ativa recuperável e avaliar preferências afetadas; a escrita do provider trunca o ficheiro.
+- **Leitura R2: AUTORIZADA. Execução 10%: NO-GO:** a autorização não permite alterar opacidade.
+- Para implementar, confirmar a base e a reversão e obter autorização específica.
+  Não exigir segunda cópia física nem identidade por commit do APK para uma mudança de configuração.
