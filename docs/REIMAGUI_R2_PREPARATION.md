@@ -1,10 +1,10 @@
 # Reimagui — R2: classificação histórica e verificação passiva proposta
 
-Atualização: 2026-10-25 20:20 UTC. Base: `7687efed0569582119aa5f97f9860b1c41a3f06f`.
+Atualização: 2026-10-25 20:27 UTC. Preparação publicada: `f4be4da2f7c2dbc737ca1d0ee34d586201c0f60d`.
 [Continuidade](CODEX_STATUS.md) · [Recuperação R1](REIMAGUI_R1_RECOVERY.md).
-Nenhum teste ou comando ADB executado em R2; backups e código de produção preservados.
-Ligação e recolha de leitura autorizadas pelo utilizador em 2026-10-25; os resultados
-serão registados depois, com nova aprovação antes da publicação dessa revisão.
+Nenhum teste repetido em R2; recolha ADB autorizada e concluída apenas com leituras.
+Backups e código de produção preservados. Resultados na secção 5, ainda sem publicação;
+o utilizador exige nova aprovação antes do push desta revisão.
 Decisão do utilizador em 2026-10-25: segunda cópia física recomendada, não bloqueadora;
 o risco residual no disco do Mac foi compreendido e aceite. Não repetir a R1 nem os testes classificados.
 
@@ -62,7 +62,7 @@ autorização para executar apenas E1–E12 num ambiente que permita sockets loc
 os alvos de teste locais previstos pelo código. Não repetir a suíte completa.
 Os outros cenários de cada ferramenta não devem ser generalizados a estes 12 casos.
 
-## 2. Procedimento ADB de leitura autorizado, ainda não executado nesta revisão
+## 2. Catálogo de leitura autorizado; execução efetiva na secção 5
 
 Pré-condições: TV com ADB previamente autorizado, alvo confirmado pela pessoa e aprovação
 específica do utilizador para a ligação e recolha. Substituir todos os placeholders.
@@ -153,6 +153,13 @@ adb -s '<tv-endpoint>' shell run-as com.gathin.tvhome cat files/config.json
 Não escrever preferências. Se recusado, manter DESCONHECIDO, sem mudar build/permissões.
 Isso não cria automaticamente um requisito de reinstalação nem bloqueia toda a preparação:
 documentar as opções visíveis/relatadas e acordar como repô-las antes de uma futura escrita.
+Na R2, a tentativa normal abaixo foi recusada; `run-as` não foi tentado porque o APK
+não é debuggable. Nenhum acesso alternativo com privilégios foi usado.
+
+```sh
+adb -s '<tv-endpoint>' shell cat /data/user/0/com.gathin.tvhome/shared_prefs/launcher_settings.xml
+```
+
 Recolher `columns`, `animations`, `advanced_effects`, `rows_below_dock`, `wallpaper_choice`,
 `dock_opacity`, `theme_signature` e `settings_revision`. Os seis primeiros podem ser
 apagados por [Config.syncThemeChoices](../launcher/app/src/main/java/com/gathin/tvhome/Config.java#L653).
@@ -241,8 +248,8 @@ activity, settings, JSON ou XML: contêm informação privada; publicar apenas c
    foco inconsistente, falha de reposição a 100% ou alteração inesperada das opções.
    Recuperação de HOME segue a R1 se necessário; não reinstalar APKs por rotina.
 
-Esta secção define o plano: não foram criados candidatos, alterada configuração ou
-executada reversão. A eventual aplicação será dirigida apenas à configuração,
+Na recolha R2, foi criada no Mac uma cópia exata para reversão, não um candidato de 10%.
+Nenhuma configuração da TV foi alterada nem reversão executada. A eventual aplicação será dirigida apenas à configuração,
 nunca por `theme.sh`, reset do tema ou substituição de APK.
 
 ## 4. Critérios para avançar
@@ -252,8 +259,53 @@ nunca por `theme.sh`, reset do tema ou substituição de APK.
   limitações de preparação; nenhum novo teste ou alteração de código necessário agora.
 - **Leitura da TV:** autorizada para R2, incluindo ligação ao alvo confirmado. Não autoriza escrita.
 - **Segunda cópia física:** recomendada; ausência não bloqueia, conforme decisão do utilizador.
-- **NO-GO 10% por agora:** confirmar o launcher instalado, obter a configuração ativa
-  recuperável, definir o tratamento de preferências afetadas e obter autorização de implementação.
+- **Base confirmada:** pacote/versão/hash do launcher e configuração persistida recolhidos.
+- **GO técnico condicionado para planear o teste:** há reversão JSON; falta acordar o
+  tratamento das escolhas internas não recolhidas, caso o teste provoque alterações nessas opções.
+- **NO-GO execução 10% agora:** nenhuma autorização de escrita/aplicação foi dada.
 - Hash do APK, correspondência por commit e certeza absoluta sobre memória não são
   bloqueadores autónomos; resolver apenas divergências concretas relevantes à mudança.
 - Preservar os backups e o [plano R1](REIMAGUI_R1_RECOVERY.md); nenhuma implementação iniciada.
+
+## 5. Resultados da recolha passiva de 2026-10-25
+
+Preparação publicada no commit acima com apenas os três documentos aprovados; ficheiros
+remotos verificados por SHA Git. A recolha ocorreu entre 20:21 e 20:25 UTC, reutilizando
+a única ligação ADB já autorizada. Não foi preciso executar `adb connect`.
+As consultas de identidade usaram `getprop` apenas para modelo, versão Android, SDK e
+build, além do utilizador atual. O modelo corresponde ao alvo, Android 14/API 34, utilizador 0.
+
+| Verificação | Resultado | Evidência / limite |
+|---|---|---|
+| Sistema e HOME | CONFIRMADO | HOME resolve para `com.gathin.tvhome/.MainActivity`; outra aplicação estava à frente, sem navegação |
+| Launcher instalado | CONFIRMADO | Versão 2.7/código 8, um APK; SHA-256 igual ao build preservado no manifesto privado R1; diferente do backup APK anterior |
+| Configuração persistida | CONFIRMADO | Leitura direta, JSON válido: 15s/30%, rotação 10 min, wallpaper ligado e dim zero; hash remoto igual aos bytes guardados |
+| Preferências relevantes | ACESSO RECUSADO | `Permission denied` na leitura normal; release não debuggable; sem root, grants ou contorno; `theme_revision` ausente |
+| Pinturas e legendas | PRESENÇA CONFIRMADA | 90 nomes/tamanhos esperados, zero imagens extra; hash das legendas igual à R1; não foi repetido hash do conteúdo dos 90 JPEGs |
+| Reversão JSON | PREPARADA NO MAC | Cópia dos bytes exatos recolhidos; configuração com hash estável no início/fim; preferências não incluídas |
+
+São 5 de 6 verificações confirmadas (**83%**, peso igual); a sexta foi encerrada com a
+limitação indicada, conforme autorização. Preparação e classificação permanecem concluídas.
+Os valores persistidos foram identificados; não houve ensaio visual de fade nem leitura
+direta de campos em memória. Não foi forçado o retorno ao Home para observar o idle.
+
+O ficheiro recolhido coincide com a candidata local R1 por hash. Esta coincidência
+agora é evidência da TV, não uma suposição de instalação baseada no checkout.
+A versão Android genérica não altera a designação histórica Reimagui v1.4.6, mas o
+hash identifica o binário concreto sem certificar um commit ausente nos metadados VCS.
+
+As consultas de recuperação identificaram o launcher e o FallbackHome do sistema como
+candidatos; não demonstraram um segundo launcher stock operacional. FallbackHome não
+é uma alternativa de recuperação comprovada. Não houve mudança de HOME nem teste de falha.
+Os serviços de acessibilidade estavam desligados e nenhum helper do launcher constava
+da lista consultada; não houve alteração desses settings.
+
+Todos os outputs, endpoint, hashes individuais, configuração e manifesto de evidências
+ficam numa pasta privada nova, ignorada pelo Git, com permissões 0700/0600. A cópia de
+reversão contém só o JSON; não garante restaurar overrides apagados pela mudança de tema.
+Antes de um teste futuro, explicitar essa limitação e acordar verificação/reposição
+de colunas, linhas, animações, efeitos, escolha de wallpaper e opacidade do dock.
+
+Nenhuma leitura adicional será usada para contornar a recusa de preferências. O próximo
+passo é rever estes resultados e autorizar separadamente o eventual teste de uma chave;
+não executar `theme.sh`, reinstalação ou limpeza de dados como atalho.

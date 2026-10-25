@@ -15,8 +15,9 @@ compreendido e aceite; as cópias locais verificadas e os originais permanecem p
 - A cópia privada R1 contém 118 ficheiros: backup principal (95), backup APK anterior (2),
   duas configurações de trabalho, configuração de staging (1), três backups legados Reimagui
   (16) e APK de build local com metadados (2). Total: 36 760 802 bytes de origem.
-- O APK anterior não contém Idle Art; o APK de build contém-no. Nenhum deles está identificado
-  como cópia comprovada da instalação v1.4.6 atualmente reportada.
+- O APK anterior não contém Idle Art; o APK de build contém-no. Na R1, nenhum tinha sido
+  identificado como cópia comprovada da instalação. A recolha R2 confirmou entretanto que
+  o SHA-256 do APK instalado coincide exatamente com esse artefacto de build preservado.
 - A subpasta privada nova fora do checkout tem um manifesto próprio,
   ficheiros com permissões 0600 e diretório 0700. Os 118 ficheiros foram comparados com
   os originais por tamanho e SHA-256 após a cópia; zero divergências ou ficheiros em falta.
@@ -54,9 +55,11 @@ compreendido e aceite; as cópias locais verificadas e os originais permanecem p
    e comparar SHA-256. Não usar `tools/theme.sh` para restaurar só a configuração:
    [apaga primeiro a coleção](../tools/theme.sh#L87).
 5. **Perfil correto:** o `config.json` original do backup não contém Idle Art e desliga
-   esse modo com o APK atual. A configuração candidata contém 15s/30%, mas a instalação
-   atual continua por confirmar. Antes de trocar `config.json`, registar as preferências
-   da TV: [a assinatura do tema pode limpá-las](../launcher/app/src/main/java/com/gathin/tvhome/Config.java#L653).
+   esse modo com o APK atual. A R2 recolheu os bytes da configuração da TV: 15s/30%,
+   rotação 10 min e dim zero, com hash coincidente no início e fim da recolha.
+   Essa cópia privada é a base de reversão JSON. Preferências internas não puderam ser
+   lidas; [a assinatura do tema pode limpá-las](../launcher/app/src/main/java/com/gathin/tvhome/Config.java#L653).
+   Não prometer reposição exata dos overrides sem os ter recolhido.
 6. **Validar e fechar:** após uma intervenção autorizada, confirmar Home e primeiro foco,
    regresso de aplicações, vídeo, Live TV, HDMI, Bluetooth, rotação e integridade das
    pinturas. Só então encerrar ADB. Guardar evidência privada sem identificadores públicos.
@@ -69,8 +72,8 @@ qualquer uso e não foi executado nesta fase.
 
 - **R1 local: GO:** inventário, hashes originais, cópia privada e hashes copiados completos.
 - **Proteção independente: RECOMENDADA:** segunda cópia não realizada; risco aceite pelo utilizador.
-- **Base e reversão: PENDENTES:** confirmar launcher instalado, recolher a configuração
-  ativa recuperável e avaliar preferências afetadas; a escrita do provider trunca o ficheiro.
+- **Base e reversão JSON: CONFIRMADAS NA R2.** Preferências internas recusadas; definir
+  o tratamento das opções afetadas antes de um teste. A escrita do provider trunca o ficheiro.
 - **Leitura R2: AUTORIZADA. Execução 10%: NO-GO:** a autorização não permite alterar opacidade.
 - Para implementar, confirmar a base e a reversão e obter autorização específica.
   Não exigir segunda cópia física nem identidade por commit do APK para uma mudança de configuração.
