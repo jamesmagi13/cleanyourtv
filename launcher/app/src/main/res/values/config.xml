@@ -410,6 +410,14 @@
          colour washes down from the top edge and fades to black, brightest along the top). The cinematic shelf
          keeps its own glow. Can also be set with "glow_style": "horizon" in a theme's config.json. -->
     <string name="glow_style" translatable="false">radial</string>
+    <!-- Seconds Home may sit untouched before navigation elements fade to idle_art_mode_opacity
+         (Idle Art Mode), leaving the wallpaper crisp and readable; 0 turns it off.
+         Can also be set with "idle_art_mode_seconds": 15 in a theme's config.json. -->
+    <integer name="idle_art_mode_seconds">0</integer>
+    <!-- Opacity of the navigation interface (grid, dock, pills, focus highlight) when idle_art_mode_seconds
+         expires, in percent (0 to 100). Default is 30.
+         Can also be set with "idle_art_mode_opacity": 30 in a theme's config.json. -->
+    <integer name="idle_art_mode_opacity">30</integer>
     <!-- The focus highlight's look: glass (the default: a translucent slab with a bright top sheen, a crisp rim and a
          faint outer glow), rim (the crisp rim alone, no sheen, fill or glow, for a quiet focus over a wallpaper) or
          halo (the rim with a lighter outer glow). Can also be set with "glass_style": "rim" in a theme's config.json. -->

@@ -133,9 +133,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private AppAdapter adapter;
     private RecyclerView grid;
     private FrameLayout root;
+    private View topButtons;
     private WallpaperPlayer wallpaperPlayer;
     private GlassView glass;
     private View ambient;
+    private View heroScrim;
+    private IdleArtController idleArtController;
     private TextView heroName;
     /** The top shelf: heroName, plus the cinematic shelf's "Last opened" line and dock position dots. */
     private View hero;
@@ -489,6 +492,24 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         vpnApp = cfg.vpnApp;
         moduleCards = cfg.moduleCards;
         hiddenApps = new HashSet<>(cfg.hiddenApps);
+        topButtons = findViewById(R.id.topButtons);
+        heroScrim = findViewById(R.id.heroScrim);
+        idleArtController = new IdleArtController(cfg.idleArtModeSeconds, cfg.idleArtModeOpacity, cfg.reducedMotion, new IdleArtController.Host() {
+            @Override
+            public boolean canEnterIdleArt() {
+                if (!hasWindowFocus() || isFinishing() || isDestroyed()) return false;
+                if (reordering || dockEditing) return false;
+                if (openPopup != null && openPopup.isShowing()) return false;
+                if (cardPrompt != null && cardPrompt.isShowing()) return false;
+                if (appLibrary != null) return false;
+                return true;
+            }
+
+            @Override
+            public void applyIdleArtOpacity(float alpha, boolean animate, long durationMs) {
+                setNavUiOpacity(alpha, animate, durationMs);
+            }
+        });
 
         grid = findViewById(R.id.grid);
         rtlAppGrid = getResources().getBoolean(R.bool.rtl_app_grid);
@@ -921,6 +942,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         restartIdleClock();
+        if (idleArtController != null) idleArtController.start();
         promptsPaused = false;
         if (grid.getAdapter() == null) grid.setAdapter(adapter);   // dropped by onTrimMemory
         switch (tileRefresh.onResume(packagesChangedSinceRebuild())) {
@@ -1109,6 +1131,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     public void onUserInteraction() {
         super.onUserInteraction();
         restartIdleClock();
+        if (idleArtController != null) idleArtController.onUserInteraction();
     }
 
     private void restartIdleClock() {
@@ -1116,10 +1139,46 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (idleClockMs > 0) root.postDelayed(showIdleClock, idleClockMs);
     }
 
+    private void setNavUiOpacity(float alpha, boolean animate, long durationMs) {
+        applyViewOpacity(grid, alpha, animate, durationMs);
+        applyViewOpacity(topButtons, alpha, animate, durationMs);
+        if (glassShown) {
+            applyViewOpacity(glass, alpha, animate, durationMs);
+        } else {
+            glass.animate().cancel();
+            glass.setAlpha(0f);
+        }
+        if (heroShown) {
+            applyViewOpacity(hero, alpha, animate, durationMs);
+            if (ambientGlow) applyViewOpacity(ambient, alpha, animate, durationMs);
+            if (cinematic) {
+                applyViewOpacity(heroArt, heroArtAlpha * alpha, animate, durationMs);
+                applyViewOpacity(heroScrim, alpha, animate, durationMs);
+            }
+        }
+        if (racePanel != null && racePanel.getVisibility() == View.VISIBLE) {
+            applyViewOpacity(racePanel, alpha, animate, durationMs);
+        }
+        if (showStats && stats != null && stats.getVisibility() == View.VISIBLE) {
+            applyViewOpacity(stats, alpha, animate, durationMs);
+        }
+    }
+
+    private static void applyViewOpacity(View view, float targetAlpha, boolean animate, long durationMs) {
+        if (view == null) return;
+        view.animate().cancel();
+        if (animate && durationMs > 0) {
+            view.animate().alpha(targetAlpha).setDuration(durationMs).start();
+        } else {
+            view.setAlpha(targetAlpha);
+        }
+    }
+
     @Override
     protected void onPause() {
         super.onPause();
         root.removeCallbacks(showIdleClock);
+        if (idleArtController != null) idleArtController.stop();
         endReorder();   // Home or another app while reordering keeps the order so far
         wallpaperPlayer.stop();
         stopAmbientAnimation();
@@ -1171,6 +1230,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
+        if (idleArtController != null) idleArtController.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             startPendingSettingsReorder();
             if (libraryFocusPending && appLibrary == null) focusLibrary();
@@ -1181,6 +1241,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (idleArtController != null) idleArtController.stop();
         unregisterReceiver(packageReceiver);
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
@@ -1224,7 +1285,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
-        if (handleSettingsKey(event)) return true;
+        if (handleSettingsKey(event)) {
+            onUserInteraction();
+            return true;
+        }
         if (tileMenuEnabled && !reordering && openPopup == null && cardPrompt == null
                 && event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
             int position = focusedTilePosition();
@@ -1233,6 +1297,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 if (event.getAction() == KeyEvent.ACTION_UP && !event.isCanceled()) {
                     onTileLongPress(position, getCurrentFocus());
                 }
+                onUserInteraction();
                 return true;
             }
         }
@@ -1250,10 +1315,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 case KeyEvent.KEYCODE_DPAD_UP:
                 case KeyEvent.KEYCODE_DPAD_DOWN:
                     if (down) moveBy(code);
+                    onUserInteraction();
                     return true;
                 default:
                     if (ok || back) {
                         if (!down) drop();
+                        onUserInteraction();
                         return true;
                     }
                     return super.dispatchKeyEvent(event);
@@ -1261,6 +1328,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         if (back) {
             if (!down) endReorder();
+            onUserInteraction();
             return true;
         }
         int pos = focusedTilePosition();
@@ -1271,12 +1339,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 endReorder();
                 onLibraryRequested();
             }
+            onUserInteraction();
             return true;
         }
         if (ok && grid.hasFocus()) {
             // RecyclerView can briefly report NO_POSITION during a move or rebind. Still consume
             // OK on the grid: falling through would let the focused card open its app in reorder mode.
             if (!down && pos >= 0) pickUp(pos);
+            onUserInteraction();
             return true;
         }
         return super.dispatchKeyEvent(event);   // arrows navigate; OK on a top-bar pill works as usual
@@ -1350,6 +1420,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     endReorder();
                 }
             }
+            onUserInteraction();
             return true;
         }
         int pos = focusedTilePosition();
@@ -1373,6 +1444,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     swapIntoDock(dockEditSlot, pos);
                 }
             }
+            onUserInteraction();
             return true;   // never opens the app while editing
         }
         return super.dispatchKeyEvent(event);   // arrows navigate as usual
