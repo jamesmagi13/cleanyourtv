@@ -173,3 +173,12 @@ Never do these in a PR:
 Questions go to [GitHub Discussions](https://github.com/Gathin23/cleanyourtv/discussions); bugs, TV lists and
 ideas that need a launcher change or a new dependency go to an issue first, with the templates in
 `.github/ISSUE_TEMPLATE/`.
+
+## Reimagui continuity (this fork)
+
+Read [docs/CODEX_STATUS.md](docs/CODEX_STATUS.md) when resuming Reimagui work. After each relevant step,
+update it with dated evidence, decisions and next actions; distinguish local changes from TV installation.
+Keep it concise (preferably at most 120 lines), link longer audits, and preserve essential history in Git.
+Publish no secrets, personal/device data or binaries. Present the documentation diff and obtain explicit
+user approval before each push. Existing safety and scope rules still apply: when documentation writes
+are prohibited (including passive audits or TV-only work), report the continuity update as pending.
