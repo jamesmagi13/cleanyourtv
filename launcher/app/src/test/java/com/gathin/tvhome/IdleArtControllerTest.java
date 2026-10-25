@@ -418,4 +418,162 @@ public class IdleArtControllerTest {
         assertFalse(ctrl.isIdle());
         assertEquals(1.0f, host.lastAlpha, 0.001f);
     }
+
+    @Test
+    public void actionDownAndUpResetCountdownCleanly() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+        int initialApplies = host.applyCount;
+
+        // Simulate ACTION_DOWN event
+        ctrl.onUserInteraction();
+        assertEquals(1, clock.scheduled.size());
+        assertEquals(initialApplies, host.applyCount);
+
+        // Simulate matching ACTION_UP event shortly after
+        ctrl.onUserInteraction();
+        assertEquals(1, clock.scheduled.size());
+        assertEquals(initialApplies, host.applyCount);
+        assertFalse(ctrl.isIdle());
+    }
+
+    @Test
+    public void dpadBurstNavigationKeepsSingleTimerAndFullAlpha() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+        // Simulate rapid DPAD burst navigation across tiles (e.g. 10 rapid arrow presses)
+        for (int i = 0; i < 10; i++) {
+            ctrl.onUserInteraction();
+            assertEquals(1, clock.scheduled.size());
+            assertEquals(15000L, clock.scheduled.get(0).delayMs);
+            assertFalse(ctrl.isIdle());
+            assertEquals(1.0f, host.lastAlpha, 0.001f);
+        }
+        assertEquals(1, host.applyCount);
+    }
+
+    @Test
+    public void menuOpenSuppressesAndClosingAllowsIdleAfterNewCountdown() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+        assertEquals(1, clock.scheduled.size());
+
+        // User opens tile menu or app library
+        host.canEnter = false;
+
+        // 15 seconds expire while menu is open
+        clock.runNext();
+        assertFalse(ctrl.isIdle());
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+        // Rescheduled
+        assertEquals(1, clock.scheduled.size());
+
+        // User interacts inside menu
+        ctrl.onUserInteraction();
+        assertEquals(1, clock.scheduled.size());
+
+        // Menu dismissed
+        host.canEnter = true;
+
+        // Next 15s cycle completes untouched
+        clock.runNext();
+        assertTrue(ctrl.isIdle());
+        assertEquals(0.30f, host.lastAlpha, 0.001f);
+    }
+
+    @Test
+    public void dockToGridFocusTransitionsKeepUiAwake() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+
+        // User navigates from dock tile (down) to grid tile
+        ctrl.onUserInteraction();
+        assertFalse(ctrl.isIdle());
+
+        // User navigates left, right within grid
+        ctrl.onUserInteraction();
+        ctrl.onUserInteraction();
+        assertEquals(1, clock.scheduled.size());
+
+        // User navigates back up to topButtons
+        ctrl.onUserInteraction();
+        assertFalse(ctrl.isIdle());
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+    }
+
+    @Test
+    public void consecutiveFadeInterruptionSnapsCleanly() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+
+        // Cycle 1: Enter idle, interrupted mid-fade
+        clock.runNext();
+        assertTrue(ctrl.isIdle());
+        assertEquals(0.30f, host.lastAlpha, 0.001f);
+        assertTrue(host.lastAnimate);
+
+        ctrl.onUserInteraction();
+        assertFalse(ctrl.isIdle());
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+        assertFalse(host.lastAnimate);
+        assertEquals(0L, host.lastDuration);
+
+        // Cycle 2: Wait 15s, enter idle again, interrupted again
+        clock.runNext();
+        assertTrue(ctrl.isIdle());
+        assertEquals(0.30f, host.lastAlpha, 0.001f);
+        assertTrue(host.lastAnimate);
+
+        ctrl.onUserInteraction();
+        assertFalse(ctrl.isIdle());
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+        assertFalse(host.lastAnimate);
+        assertEquals(0L, host.lastDuration);
+    }
+
+    @Test
+    public void appSwitchLongSessionLifecycleIntegrity() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+        clock.runNext();
+        assertTrue(ctrl.isIdle());
+
+        // App switches away (e.g. HDMI or Netflix)
+        ctrl.stop();
+        assertFalse(ctrl.isRunning());
+        assertFalse(ctrl.isIdle());
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+        assertTrue(clock.scheduled.isEmpty());
+
+        // Spurious events during external app playback must be completely ignored
+        ctrl.onUserInteraction();
+        ctrl.onWindowFocusChanged(true);
+        assertTrue(clock.scheduled.isEmpty());
+        assertFalse(ctrl.isRunning());
+
+        // Returning to Home (onResume)
+        ctrl.start();
+        assertTrue(ctrl.isRunning());
+        assertEquals(1, clock.scheduled.size());
+        assertEquals(15000L, clock.scheduled.get(0).delayMs);
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+    }
 }
