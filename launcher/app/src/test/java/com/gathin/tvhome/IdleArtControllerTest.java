@@ -576,4 +576,68 @@ public class IdleArtControllerTest {
         assertEquals(15000L, clock.scheduled.get(0).delayMs);
         assertEquals(1.0f, host.lastAlpha, 0.001f);
     }
+
+    @Test
+    public void heldKeyContinuousRepeatsKeepSingleTimerAndPreventIdle() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+        int initialApplies = host.applyCount;
+
+        // 1. Initial ACTION_DOWN (repeatCount = 0)
+        ctrl.onUserInteraction();
+        assertEquals(1, clock.scheduled.size());
+        assertEquals(15000L, clock.scheduled.get(0).delayMs);
+        assertFalse(ctrl.isIdle());
+        assertEquals(initialApplies, host.applyCount);
+
+        // 2. Button held down generating 30 repeat events (repeatCount 1..30)
+        for (int repeat = 1; repeat <= 30; repeat++) {
+            ctrl.onUserInteraction();
+            // Invariant: queue size never grows, callback is always rescheduled to +15s
+            assertEquals(1, clock.scheduled.size());
+            assertEquals(15000L, clock.scheduled.get(0).delayMs);
+            assertFalse(ctrl.isIdle());
+            assertEquals(1.0f, host.lastAlpha, 0.001f);
+        }
+
+        // 3. User releases button: ACTION_UP
+        ctrl.onUserInteraction();
+        assertEquals(1, clock.scheduled.size());
+        assertEquals(15000L, clock.scheduled.get(0).delayMs);
+        assertFalse(ctrl.isIdle());
+
+        // 4. Inactivity for 15 seconds after release -> Idle Art triggers
+        clock.runNext();
+        assertTrue(ctrl.isIdle());
+        assertEquals(0.30f, host.lastAlpha, 0.001f);
+        assertTrue(host.lastAnimate);
+    }
+
+    @Test
+    public void userInteractionDuringFadeSnapsImmediatelyAndRestoresFullAlpha() {
+        FakeClock clock = new FakeClock();
+        FakeHost host = new FakeHost();
+        IdleArtController ctrl = new IdleArtController(15, 30, false, host, clock);
+
+        ctrl.start();
+        // Enter idle
+        clock.runNext();
+        assertTrue(ctrl.isIdle());
+        assertEquals(0.30f, host.lastAlpha, 0.001f);
+        assertTrue(host.lastAnimate);
+
+        // Interaction occurs mid-fade (e.g. user presses DPAD or Back)
+        ctrl.onUserInteraction();
+        assertFalse(ctrl.isIdle());
+        assertEquals(1.0f, host.lastAlpha, 0.001f);
+        assertFalse(host.lastAnimate); // Snaps immediately without animation delay
+        assertEquals(0L, host.lastDuration);
+
+        // Rescheduled for next 15s
+        assertEquals(1, clock.scheduled.size());
+        assertEquals(15000L, clock.scheduled.get(0).delayMs);
+    }
 }
