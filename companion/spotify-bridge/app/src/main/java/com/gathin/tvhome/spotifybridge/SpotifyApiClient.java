@@ -50,23 +50,37 @@ public class SpotifyApiClient {
         public final long expiresIn;
         public final String error;
         public final String errorDescription;
+        public final int statusCode;
+        public final long retryAfterSeconds;
 
         public TokenResponse(String accessToken, String refreshToken, long expiresIn) {
+            this(accessToken, refreshToken, expiresIn, 200, 0);
+        }
+
+        public TokenResponse(String accessToken, String refreshToken, long expiresIn, int statusCode, long retryAfterSeconds) {
             this.success = true;
             this.accessToken = accessToken;
             this.refreshToken = refreshToken;
             this.expiresIn = expiresIn;
             this.error = null;
             this.errorDescription = null;
+            this.statusCode = statusCode;
+            this.retryAfterSeconds = retryAfterSeconds;
         }
 
         public TokenResponse(String error, String errorDescription) {
+            this(error, errorDescription, -1, 0);
+        }
+
+        public TokenResponse(String error, String errorDescription, int statusCode, long retryAfterSeconds) {
             this.success = false;
             this.accessToken = null;
             this.refreshToken = null;
             this.expiresIn = 0;
             this.error = error != null ? error : "unknown_error";
             this.errorDescription = errorDescription;
+            this.statusCode = statusCode;
+            this.retryAfterSeconds = retryAfterSeconds;
         }
     }
 
@@ -173,6 +187,13 @@ public class SpotifyApiClient {
             }
 
             int code = conn.getResponseCode();
+            long retryAfter = 0;
+            String retryAfterHeader = conn.getHeaderField("Retry-After");
+            if (retryAfterHeader != null) {
+                try {
+                    retryAfter = Long.parseLong(retryAfterHeader.trim());
+                } catch (NumberFormatException ignored) {}
+            }
             InputStream in = (code >= 200 && code < 300) ? conn.getInputStream() : conn.getErrorStream();
             String responseText = readStream(in);
 
@@ -181,15 +202,15 @@ public class SpotifyApiClient {
                 String accessToken = json.getString("access_token");
                 String refreshToken = json.optString("refresh_token", params.get("refresh_token"));
                 long expiresIn = json.optLong("expires_in", 3600L);
-                return new TokenResponse(accessToken, refreshToken, expiresIn);
+                return new TokenResponse(accessToken, refreshToken, expiresIn, code, retryAfter);
             } else {
                 String error = json.optString("error", "http_" + code);
                 String desc = json.optString("error_description", responseText);
-                return new TokenResponse(error, desc);
+                return new TokenResponse(error, desc, code, retryAfter);
             }
         } catch (Exception e) {
             e.printStackTrace();
-            return new TokenResponse("network_error", e.getMessage());
+            return new TokenResponse("network_error", e.getMessage(), -1, 0);
         } finally {
             if (conn != null) conn.disconnect();
         }

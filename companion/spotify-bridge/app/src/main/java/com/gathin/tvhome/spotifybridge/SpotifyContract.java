@@ -28,6 +28,7 @@ public final class SpotifyContract {
 
     public static final String METHOD_SUBSCRIBE = "subscribe";
     public static final String METHOD_UNSUBSCRIBE = "unsubscribe";
+    public static final String EXTRA_TOKEN = "token";
 
     private SpotifyContract() {}
 }

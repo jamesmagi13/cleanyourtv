@@ -1,6 +1,7 @@
 package com.gathin.tvhome.spotifybridge;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
@@ -20,7 +21,7 @@ public class SpotifyAuthActivity extends Activity {
 
     public static final String EXTRA_CLIENT_ID = "client_id";
 
-    private SpotifyTokenStore tokenStore;
+    private TokenStorage tokenStore;
     private SpotifyApiClient apiClient;
     private SpotifyLoopbackServer loopbackServer;
 
@@ -96,7 +97,16 @@ public class SpotifyAuthActivity extends Activity {
         return getString(R.string.spotify_client_id);
     }
 
+    private volatile boolean loginCancelled = false;
+
+    void setDependenciesForTesting(SpotifyLoopbackServer server, SpotifyApiClient client, TokenStorage store) {
+        this.loopbackServer = server;
+        this.apiClient = client;
+        this.tokenStore = store;
+    }
+
     private void initiateLogin() {
+        loginCancelled = false;
         String clientId = resolveClientId();
         if (clientId == null || clientId.trim().isEmpty() || "default".equalsIgnoreCase(clientId)) {
             if (statusView != null) {
@@ -113,6 +123,9 @@ public class SpotifyAuthActivity extends Activity {
         }
 
         loopbackServer.start(120000, (code, state, error) -> {
+            if (loginCancelled || !SpotifyAuthSession.hasActiveSession()) {
+                return false;
+            }
             if (error != null) {
                 runOnUiThread(() -> {
                     if (statusView != null) {
@@ -125,6 +138,9 @@ public class SpotifyAuthActivity extends Activity {
             try {
                 String verifier = SpotifyAuthSession.consumeCallback(code, state);
                 SpotifyApiClient.TokenResponse tokenResp = apiClient.exchangeAuthorizationCode(clientId, code, verifier, redirectUri);
+                if (loginCancelled) {
+                    return false;
+                }
                 if (tokenResp.success) {
                     tokenStore.saveTokens(clientId, tokenResp.accessToken, tokenResp.refreshToken, tokenResp.expiresIn);
                     runOnUiThread(() -> {
@@ -163,9 +179,16 @@ public class SpotifyAuthActivity extends Activity {
         }
     }
 
-    private void disconnect() {
+    void disconnect() {
+        loginCancelled = true;
+        SpotifyAuthSession.cancelSession();
+        if (loopbackServer != null) {
+            loopbackServer.stop();
+        }
         tokenStore.clear();
-        SpotifyNowPlayingProvider.clearPlaybackState(getApplicationContext());
+        Context ctx = getApplicationContext() != null ? getApplicationContext() : this;
+        SpotifyNowPlayingProvider.clearPlaybackState(ctx);
+        SpotifyPoller.getInstance(ctx).stop();
         updateStatusUI();
     }
 }

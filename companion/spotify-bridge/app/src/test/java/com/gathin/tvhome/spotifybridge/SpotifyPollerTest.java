@@ -18,6 +18,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -282,5 +283,153 @@ public class SpotifyPollerTest {
         assertTrue(poller.isRunning());
         poller.stop();
         assertFalse(poller.isRunning());
+    }
+
+    @Test
+    public void startStopStartCyclesWithRealExecutor() throws Exception {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        String json200 = "{\"is_playing\": true, \"item\": {\"name\": \"Reused Song\", \"artists\": [{\"name\": \"Artist\"}], \"album\": {\"name\": \"Album\", \"images\": []}}, \"progress_ms\": 1000}";
+        AtomicInteger networkHits = new AtomicInteger(0);
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            networkHits.incrementAndGet();
+            return new MockHttpConnection(new URL(url), 200, json200);
+        });
+
+        // Initialize poller with real default executor (ownsScheduler = true)
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, null, true, tempCacheDir, () -> {});
+
+        // Cycle 1: Start
+        poller.start();
+        assertTrue(poller.isRunning());
+        Thread.sleep(100);
+        assertTrue(networkHits.get() >= 1);
+
+        // Stop Cycle 1
+        poller.stop();
+        assertFalse(poller.isRunning());
+        int hitsAfterStop = networkHits.get();
+        Thread.sleep(100);
+        assertEquals(hitsAfterStop, networkHits.get());
+
+        // Cycle 2: Start again (reusing singleton poller instance)
+        poller.start();
+        assertTrue(poller.isRunning());
+        Thread.sleep(100);
+        assertTrue(networkHits.get() > hitsAfterStop);
+
+        // Teardown
+        poller.destroy();
+        assertFalse(poller.isRunning());
+    }
+
+    @Test
+    public void pollAfter401WithTransientRefreshFailureAppliesSafeBackoffWithoutFastLoop() {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        storage.saveTokens("client", "expired-token", "refresh-token", 3600);
+
+        // Playback returns 401; Token refresh returns 500 transient server error
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            if (url.contains("/api/token")) {
+                return new MockHttpConnection(new URL(url), 500, "{\"error\":\"server_error\"}");
+            }
+            return new MockHttpConnection(new URL(url), 401, "{\"error\":\"token_expired\"}");
+        });
+
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, () -> {});
+
+        long delay = poller.executePoll();
+        // Safe backoff must be 30 seconds, never 1 second!
+        assertEquals(SpotifyPoller.ERROR_BACKOFF_SEC, delay);
+        assertEquals(30L, delay);
+    }
+
+    @Test
+    public void pollImmediatelyWhenNotRunningDoesNotTriggerNetworkCalls() {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        AtomicInteger networkCalls = new AtomicInteger(0);
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            networkCalls.incrementAndGet();
+            return new MockHttpConnection(new URL(url), 200, "{}");
+        });
+
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, () -> {});
+
+        assertFalse(poller.isRunning());
+        poller.pollImmediately();
+
+        // No network calls should be dispatched when not running
+        assertEquals(0, networkCalls.get());
+    }
+
+    @Test
+    public void inFlightRequestCompletedAfterStopIsDiscarded() throws Exception {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        java.util.concurrent.CountDownLatch requestEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseResponse = new java.util.concurrent.CountDownLatch(1);
+
+        String delayedTrackJson = "{\"is_playing\": true, \"item\": {\"name\": \"Ghost Track\", \"artists\": [{\"name\": \"Late Artist\"}], \"album\": {\"name\": \"Late Album\", \"images\": []}}, \"progress_ms\": 500}";
+
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            requestEntered.countDown();
+            try {
+                releaseResponse.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException ignored) {}
+            return new MockHttpConnection(new URL(url), 200, delayedTrackJson);
+        });
+
+        SpotifyNowPlayingProvider.clearPlaybackState(null);
+
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, () -> {});
+        poller.start();
+
+        // Wait until HTTP request is in-flight
+        assertTrue(requestEntered.await(5, TimeUnit.SECONDS));
+
+        // Screensaver stops while request is in-flight!
+        poller.stop();
+        assertFalse(poller.isRunning());
+
+        // Release delayed HTTP response
+        releaseResponse.countDown();
+        Thread.sleep(200);
+
+        // Response must have been discarded! "Ghost Track" must NOT be in provider!
+        assertFalse(SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+        assertEquals("", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
+    }
+
+    @Test
+    public void prolongedNetworkFailureExpiresCurrentlyPlayingTrack() {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+
+        // Seed with active song
+        SpotifyNowPlayingProvider.setPlaybackState(true, "Playing Song", "Artist", "Album", "", 2000, 1000, false);
+        assertTrue(SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+
+        // Client that always fails with 500 internal server error
+        SpotifyApiClient client = new SpotifyApiClient(url -> new MockHttpConnection(new URL(url), 500, "{\"error\": \"down\"}"));
+        AtomicInteger notifyCount = new AtomicInteger(0);
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, notifyCount::incrementAndGet);
+
+        // Poll 1: Single transient error -> preserve existing metadata without flickering
+        long delay1 = poller.executePoll();
+        assertEquals(SpotifyPoller.ERROR_BACKOFF_SEC, delay1);
+        assertTrue("Track should stay visible on single transient failure", SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+        assertEquals("Playing Song", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
+        assertEquals(1, poller.getConsecutiveErrors());
+
+        // Poll 2: Second transient error -> still preserve
+        long delay2 = poller.executePoll();
+        assertEquals(SpotifyPoller.ERROR_BACKOFF_SEC, delay2);
+        assertTrue("Track should stay visible on second failure", SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+        assertEquals(2, poller.getConsecutiveErrors());
+
+        // Poll 3: Prolonged error (3rd consecutive failure) -> expire track!
+        long delay3 = poller.executePoll();
+        assertEquals(SpotifyPoller.ERROR_BACKOFF_SEC, delay3);
+        assertEquals(3, poller.getConsecutiveErrors());
+        assertFalse("Track must expire after prolonged network failure", SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+        assertEquals("", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
+        assertTrue("Notifier should be triggered on expiry", notifyCount.get() > 0);
     }
 }

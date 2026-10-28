@@ -133,6 +133,13 @@ Cursor de linha única com dados estritamente de apresentação. **Zero tokens o
 - Falsas faixas simuladas nunca são exibidas como reprodução real na TV.
 - A simulação só é ativada em testes controlados através de métodos explícitos de teste (`enableMockForTesting`).
 
+### 4.6 Ciclo de Subscrição e Resiliência a Terminação Anormal (DeathRecipient)
+
+- **Métodos `call()`**:
+  - `subscribe`: Regista o cliente e inicia o poller em segundo plano.
+  - `unsubscribe`: Remove o cliente e para o poller quando não restam observadores.
+- **Deteção de Morte de Processo (`EXTRA_TOKEN`)**: O cliente envia um `IBinder` no extra `token`. O provider regista um `IBinder.DeathRecipient`. Se o processo do launcher for terminado anormalmente (ex.: LMK na TV de 1GB), o kernel aciona `binderDied()`, decrementando o contador e desligando o poller imediatamente, sem requerer polling periódico nem consumir memória/bateria.
+
 ## 5. Layout, Composição e Prevenção de Sobreposição
 
 Validado matematicamente por [`ClockLayoutBoundsTest`](../launcher/app/src/test/java/com/gathin/tvhome/ClockLayoutBoundsTest.java) em 720p, 1080p e 4K:

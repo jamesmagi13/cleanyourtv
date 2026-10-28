@@ -7,6 +7,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Outline;
 import android.net.Uri;
+import android.os.Binder;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
@@ -78,6 +80,7 @@ final class ClockSpotify {
     private Bitmap currentArt;
     private TrackInfo currentInfo;
 
+    private final Binder subscriptionToken = new Binder();
     private ContentObserver observer;
 
     ClockSpotify(View clockRoot) {
@@ -282,9 +285,11 @@ final class ClockSpotify {
         }
     }
 
-    private static void sendSubscription(Context ctx, String method) {
+    private void sendSubscription(Context ctx, String method) {
         try {
-            ctx.getContentResolver().call(Uri.parse(NOW_PLAYING_URI_STRING), method, null, null);
+            Bundle extras = new Bundle();
+            extras.putBinder("token", subscriptionToken);
+            ctx.getContentResolver().call(Uri.parse(NOW_PLAYING_URI_STRING), method, null, extras);
         } catch (Exception ignored) {
         }
     }

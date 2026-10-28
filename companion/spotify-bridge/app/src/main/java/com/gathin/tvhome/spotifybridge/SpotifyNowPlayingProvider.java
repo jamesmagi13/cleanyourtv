@@ -13,12 +13,16 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.IBinder;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
 
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
  * Hardened ContentProvider exposing sanitized Spotify Now Playing metadata and cached album art.
@@ -68,6 +72,22 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
     private static boolean hasAlbumArt = false;
 
     private static int subscriberCount = 0;
+    private static final Map<IBinder, IBinder.DeathRecipient> activeSubscribers = new HashMap<>();
+    private static SpotifyPoller pollerInstance = null;
+
+    public static synchronized void setPollerForTesting(SpotifyPoller poller) {
+        pollerInstance = poller;
+    }
+
+    public static synchronized void resetSubscribersForTesting() {
+        for (Map.Entry<IBinder, IBinder.DeathRecipient> entry : activeSubscribers.entrySet()) {
+            try {
+                entry.getKey().unlinkToDeath(entry.getValue(), 0);
+            } catch (Exception ignored) {}
+        }
+        activeSubscribers.clear();
+        subscriberCount = 0;
+    }
 
     /**
      * Explicit test helper: only enabled during local simulation tests.
@@ -132,7 +152,38 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
             if (artFile.exists()) {
                 artFile.delete();
             }
+            try {
+                context.getContentResolver().notifyChange(SpotifyContract.NOW_PLAYING_URI, null);
+            } catch (Exception ignored) {
+            }
         }
+    }
+
+    public static final class PlaybackSnapshot {
+        public final boolean isPlaying;
+        public final String trackTitle;
+        public final String artistName;
+        public final String albumName;
+        public final String spotifyUri;
+        public final long durationMs;
+        public final long progressMs;
+        public final boolean hasAlbumArt;
+
+        public PlaybackSnapshot(boolean isPlaying, String trackTitle, String artistName, String albumName,
+                                String spotifyUri, long durationMs, long progressMs, boolean hasAlbumArt) {
+            this.isPlaying = isPlaying;
+            this.trackTitle = trackTitle;
+            this.artistName = artistName;
+            this.albumName = albumName;
+            this.spotifyUri = spotifyUri;
+            this.durationMs = durationMs;
+            this.progressMs = progressMs;
+            this.hasAlbumArt = hasAlbumArt;
+        }
+    }
+
+    public static synchronized PlaybackSnapshot getPlaybackSnapshot() {
+        return new PlaybackSnapshot(isPlaying, trackTitle, artistName, albumName, spotifyUri, durationMs, progressMs, hasAlbumArt);
     }
 
     public static synchronized int getSubscriberCount() {
@@ -269,39 +320,73 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         }
     }
 
+    public static synchronized int handleSubscription(String method, IBinder token, SpotifyPoller poller) {
+        if (SpotifyContract.METHOD_SUBSCRIBE.equals(method)) {
+            if (token != null) {
+                if (!activeSubscribers.containsKey(token)) {
+                    IBinder.DeathRecipient recipient = () -> {
+                        synchronized (SpotifyNowPlayingProvider.class) {
+                            activeSubscribers.remove(token);
+                            subscriberCount = activeSubscribers.size();
+                            if (subscriberCount == 0 && poller != null) {
+                                poller.stop();
+                            }
+                        }
+                    };
+                    try {
+                        token.linkToDeath(recipient, 0);
+                        activeSubscribers.put(token, recipient);
+                    } catch (RemoteException e) {
+                        return subscriberCount;
+                    }
+                }
+                subscriberCount = activeSubscribers.size();
+            } else {
+                subscriberCount++;
+            }
+            if (subscriberCount == 1 && poller != null) {
+                poller.start();
+            }
+            return subscriberCount;
+        } else if (SpotifyContract.METHOD_UNSUBSCRIBE.equals(method)) {
+            if (token != null) {
+                IBinder.DeathRecipient recipient = activeSubscribers.remove(token);
+                if (recipient != null) {
+                    try {
+                        token.unlinkToDeath(recipient, 0);
+                    } catch (Exception ignored) {
+                    }
+                }
+                subscriberCount = activeSubscribers.size();
+            } else {
+                subscriberCount = Math.max(0, subscriberCount - 1);
+            }
+            if (subscriberCount == 0 && poller != null) {
+                poller.stop();
+            }
+            return subscriberCount;
+        }
+        return subscriberCount;
+    }
+
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         verifyCaller();
-        if (SpotifyContract.METHOD_SUBSCRIBE.equals(method)) {
-            synchronized (SpotifyNowPlayingProvider.class) {
-                subscriberCount++;
-                if (subscriberCount == 1) {
-                    Context ctx = getContext();
-                    if (ctx != null) {
-                        try {
-                            SpotifyPoller.getInstance(ctx).start();
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
+        IBinder token = null;
+        if (extras != null) {
+            try {
+                token = extras.getBinder(SpotifyContract.EXTRA_TOKEN);
+            } catch (Exception ignored) {
             }
-            return new Bundle();
-        } else if (SpotifyContract.METHOD_UNSUBSCRIBE.equals(method)) {
-            synchronized (SpotifyNowPlayingProvider.class) {
-                subscriberCount = Math.max(0, subscriberCount - 1);
-                if (subscriberCount == 0) {
-                    Context ctx = getContext();
-                    if (ctx != null) {
-                        try {
-                            SpotifyPoller.getInstance(ctx).stop();
-                        } catch (Exception ignored) {
-                        }
-                    }
-                }
-            }
-            return new Bundle();
         }
-        return super.call(method, arg, extras);
+        SpotifyPoller poller = pollerInstance != null ? pollerInstance : SpotifyPoller.getInstance(getContext());
+        int count = handleSubscription(method, token, poller);
+        Bundle res = new Bundle();
+        try {
+            res.putInt("subscribers", count);
+        } catch (Exception ignored) {
+        }
+        return res;
     }
 
     @Override

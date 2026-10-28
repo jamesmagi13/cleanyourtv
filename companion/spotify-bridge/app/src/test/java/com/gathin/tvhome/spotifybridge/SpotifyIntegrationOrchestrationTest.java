@@ -265,4 +265,110 @@ public class SpotifyIntegrationOrchestrationTest {
         assertEquals("Space Oddity", resp.trackTitle);
         assertEquals("spotify:track:72Z17vmmeQKAg8bptWvpVG", resp.spotifyUri);
     }
+
+    @Test
+    public void testLogoutWhileOAuthCallbackIsPendingCancelsAndDiscards() {
+        String clientId = "test-client-id";
+        String redirectUri = "http://127.0.0.1:8888/callback";
+
+        // 1. Start OAuth session
+        SpotifyAuthSession.startSession(clientId, redirectUri);
+        assertTrue(SpotifyAuthSession.hasActiveSession());
+
+        // 2. Disconnect / Logout before callback completes
+        SpotifyAuthSession.cancelSession();
+        assertFalse(SpotifyAuthSession.hasActiveSession());
+
+        // 3. Late callback arriving must be rejected
+        try {
+            SpotifyAuthSession.consumeCallback("auth-code-123", "some-state");
+            fail("Expected SecurityException on cancelled session");
+        } catch (SecurityException e) {
+            assertTrue(e.getMessage().contains("No active OAuth session"));
+        }
+    }
+
+    @Test
+    public void testLogoutNotifiesObserverImmediately() {
+        SpotifyNowPlayingProvider.setPlaybackState(true, "Leaving Song", "Artist", "Album", "uri", 3000, 1000, true);
+        assertTrue(SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+        assertEquals("Leaving Song", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
+
+        // Clear state (called on logout/disconnect)
+        SpotifyNowPlayingProvider.clearPlaybackState(null);
+
+        // State is immediately cleared so launcher observer hides Now Playing
+        assertFalse(SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+        assertEquals("", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
+        assertEquals("", SpotifyNowPlayingProvider.getPlaybackSnapshot().artistName);
+    }
+
+    private static class MockTestBinder implements android.os.IBinder {
+        private DeathRecipient recipient;
+
+        @Override
+        public void linkToDeath(DeathRecipient r, int flags) {
+            this.recipient = r;
+        }
+
+        @Override
+        public boolean unlinkToDeath(DeathRecipient r, int flags) {
+            if (this.recipient == r) {
+                this.recipient = null;
+                return true;
+            }
+            return false;
+        }
+
+        public void simulateBinderDeath() {
+            if (recipient != null) {
+                recipient.binderDied();
+            }
+        }
+
+        @Override public String getInterfaceDescriptor() { return "mock"; }
+        @Override public boolean pingBinder() { return true; }
+        @Override public boolean isBinderAlive() { return true; }
+        @Override public android.os.IInterface queryLocalInterface(String descriptor) { return null; }
+        @Override public void dump(java.io.FileDescriptor fd, String[] args) {}
+        @Override public void dumpAsync(java.io.FileDescriptor fd, String[] args) {}
+        @Override public boolean transact(int code, android.os.Parcel data, android.os.Parcel reply, int flags) { return false; }
+    }
+
+    @Test
+    public void testClientProcessDeathCleansUpSubscriberCountAndStopsPoller() {
+        SpotifyNowPlayingProvider.resetSubscribersForTesting();
+
+        AtomicBoolean pollerStarted = new AtomicBoolean(false);
+        SpotifyPoller mockPoller = new SpotifyPoller(null, new SpotifyApiClient(), new SpotifyPollerTestMockStorage(), null, false, tempCacheDir, () -> {}) {
+            @Override public synchronized void start() { pollerStarted.set(true); }
+            @Override public synchronized void stop() { pollerStarted.set(false); }
+            @Override public synchronized boolean isRunning() { return pollerStarted.get(); }
+        };
+
+        MockTestBinder clientToken = new MockTestBinder();
+
+        // 1. Client subscribes with Binder token
+        int subscribers = SpotifyNowPlayingProvider.handleSubscription(SpotifyContract.METHOD_SUBSCRIBE, clientToken, mockPoller);
+        assertEquals(1, subscribers);
+        assertEquals(1, SpotifyNowPlayingProvider.getSubscriberCount());
+        assertTrue("Poller must start upon subscription", mockPoller.isRunning());
+
+        // 2. Client process crashes or is killed by LMK without calling unsubscribe
+        clientToken.simulateBinderDeath();
+
+        // 3. Provider's DeathRecipient must automatically decrement count and stop poller
+        assertEquals(0, SpotifyNowPlayingProvider.getSubscriberCount());
+        assertFalse("Poller must stop when client process dies unexpectedly", mockPoller.isRunning());
+    }
+
+    private static class SpotifyPollerTestMockStorage implements TokenStorage {
+        @Override public void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {}
+        @Override public String getClientId() { return "client"; }
+        @Override public String getAccessToken() { return "access"; }
+        @Override public String getRefreshToken() { return "refresh"; }
+        @Override public boolean isExpired() { return false; }
+        @Override public boolean hasRefreshToken() { return true; }
+        @Override public void clear() {}
+    }
 }

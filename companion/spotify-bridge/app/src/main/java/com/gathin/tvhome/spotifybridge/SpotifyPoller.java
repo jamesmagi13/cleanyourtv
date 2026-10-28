@@ -3,19 +3,21 @@ package com.gathin.tvhome.spotifybridge;
 import android.content.Context;
 
 import java.io.File;
-import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Moderate background polling engine for Spotify Web API (/v1/me/player/currently-playing).
  * - Only active when the clock screensaver has subscribed (subscriberCount > 0).
- * - Stops immediately when unsubscribed.
- * - Manages automatic token refresh via TokenStorage and SpotifyApiClient.
- * - Handles 204 No Content, 401 Unauthorized, 403 Forbidden, and 429 Rate Limiting with Retry-After backoff.
+ * - Stops immediately when unsubscribed without destroying the reusable executor pool.
+ * - Handles multiple start -> stop -> start cycles gracefully.
+ * - Manages automatic token refresh via TokenStorage and SpotifyApiClient with safe backoffs on transient failures.
+ * - Discards responses from requests initiated before stop or when unobserved.
+ * - Expires playback metadata after prolonged network failures without flickering on single transient glitches.
  * - Atomically downloads album artwork, validating HTTPS and preventing stale artwork from persisting.
- * - Triggers ContentResolver.notifyChange() only when playback metadata actually changes.
+ * - Triggers ContentResolver.notifyChange() when playback metadata changes or expires.
  */
 public class SpotifyPoller {
 
@@ -23,6 +25,7 @@ public class SpotifyPoller {
     public static final long IDLE_POLL_INTERVAL_SEC = 30L;
     public static final long ERROR_BACKOFF_SEC = 30L;
     public static final long QUOTA_EXCEEDED_BACKOFF_SEC = 3600L; // 1 hour backoff on QUOTA_EXCEEDED
+    public static final int MAX_CONSECUTIVE_ERRORS_BEFORE_EXPIRY = 3;
 
     public interface ProviderNotifier {
         void notifyChange();
@@ -32,7 +35,7 @@ public class SpotifyPoller {
 
     public static synchronized SpotifyPoller getInstance(Context context) {
         if (instance == null) {
-            Context appCtx = context.getApplicationContext();
+            Context appCtx = context != null ? context.getApplicationContext() : null;
             instance = new SpotifyPoller(appCtx, new SpotifyApiClient(), new SpotifyTokenStore(appCtx));
         }
         return instance;
@@ -40,15 +43,27 @@ public class SpotifyPoller {
 
     public static synchronized void setInstanceForTesting(SpotifyPoller testInstance) {
         if (instance != null && instance != testInstance) {
-            instance.stop();
+            instance.destroy();
         }
         instance = testInstance;
+    }
+
+    private static ScheduledExecutorService createDefaultScheduler() {
+        ScheduledThreadPoolExecutor exec = new ScheduledThreadPoolExecutor(1, r -> {
+            Thread t = new Thread(r, "spotify-poller");
+            t.setDaemon(true);
+            return t;
+        });
+        exec.setKeepAliveTime(10, TimeUnit.SECONDS);
+        exec.allowCoreThreadTimeOut(true);
+        exec.setRemoveOnCancelPolicy(true);
+        return exec;
     }
 
     private final Context context;
     private final SpotifyApiClient apiClient;
     private final TokenStorage tokenStore;
-    private final ScheduledExecutorService scheduler;
+    private ScheduledExecutorService scheduler;
     private final boolean ownsScheduler;
     private final File cacheDir;
     private final ProviderNotifier notifier;
@@ -56,10 +71,12 @@ public class SpotifyPoller {
     private boolean running = false;
     private ScheduledFuture<?> scheduledTask;
     private String lastDownloadedArtUrl = "";
+    private int generation = 0;
+    private int consecutiveErrors = 0;
 
     public SpotifyPoller(Context context, SpotifyApiClient apiClient, TokenStorage tokenStore) {
         this(context, apiClient, tokenStore,
-                Executors.newSingleThreadScheduledExecutor(r -> new Thread(r, "spotify-poller")),
+                createDefaultScheduler(),
                 true,
                 context != null ? context.getCacheDir() : null,
                 null);
@@ -71,7 +88,7 @@ public class SpotifyPoller {
         this.context = context != null ? context.getApplicationContext() : null;
         this.apiClient = apiClient;
         this.tokenStore = tokenStore;
-        this.scheduler = scheduler;
+        this.scheduler = scheduler != null ? scheduler : createDefaultScheduler();
         this.ownsScheduler = ownsScheduler;
         this.cacheDir = cacheDir != null ? cacheDir
                 : (context != null && context.getCacheDir() != null ? context.getCacheDir()
@@ -81,35 +98,48 @@ public class SpotifyPoller {
 
     public synchronized void start() {
         if (running) return;
+        if (ownsScheduler && (scheduler == null || scheduler.isShutdown())) {
+            scheduler = createDefaultScheduler();
+        }
         running = true;
+        generation++;
         schedulePoll(0, TimeUnit.SECONDS);
     }
 
     public synchronized void stop() {
         running = false;
+        generation++;
         if (scheduledTask != null) {
             scheduledTask.cancel(true);
             scheduledTask = null;
         }
-        if (ownsScheduler && !scheduler.isShutdown()) {
+    }
+
+    public synchronized void destroy() {
+        stop();
+        if (ownsScheduler && scheduler != null && !scheduler.isShutdown()) {
             scheduler.shutdownNow();
         }
     }
 
     public synchronized void pollImmediately() {
         if (!running) {
-            scheduler.execute(this::executePoll);
-        } else {
-            schedulePoll(0, TimeUnit.SECONDS);
+            // No active screensaver subscribers: do not make network calls.
+            return;
         }
+        schedulePoll(0, TimeUnit.SECONDS);
     }
 
     public synchronized boolean isRunning() {
         return running;
     }
 
+    public synchronized int getConsecutiveErrors() {
+        return consecutiveErrors;
+    }
+
     private synchronized void schedulePoll(long delay, TimeUnit unit) {
-        if (!running || scheduler.isShutdown()) return;
+        if (!running || scheduler == null || scheduler.isShutdown()) return;
         if (scheduledTask != null && !scheduledTask.isDone()) {
             scheduledTask.cancel(false);
         }
@@ -121,13 +151,19 @@ public class SpotifyPoller {
      * @return the delay in seconds until the next recommended poll.
      */
     public long executePoll() {
+        final int currentGen;
+        synchronized (this) {
+            currentGen = this.generation;
+        }
+
         if (!tokenStore.hasRefreshToken()) {
             // No credentials configured
             boolean changed = SpotifyNowPlayingProvider.setPlaybackState(false, "", "", "", "", 0, 0, false);
+            clearCachedArt();
             if (changed) {
                 notifyProviderChange();
             }
-            scheduleNext(IDLE_POLL_INTERVAL_SEC);
+            scheduleNext(IDLE_POLL_INTERVAL_SEC, currentGen);
             return IDLE_POLL_INTERVAL_SEC;
         }
 
@@ -140,37 +176,59 @@ public class SpotifyPoller {
                 if (tokenResp.success) {
                     tokenStore.saveTokens(clientId, tokenResp.accessToken, tokenResp.refreshToken, tokenResp.expiresIn);
                     accessToken = tokenResp.accessToken;
+                    consecutiveErrors = 0;
                 } else if ("invalid_grant".equals(tokenResp.error)) {
                     // Revoked token
                     tokenStore.clear();
                     SpotifyNowPlayingProvider.clearPlaybackState(context);
                     notifyProviderChange();
-                    scheduleNext(IDLE_POLL_INTERVAL_SEC);
+                    scheduleNext(IDLE_POLL_INTERVAL_SEC, currentGen);
                     return IDLE_POLL_INTERVAL_SEC;
+                } else if (tokenResp.statusCode == 429) {
+                    handleError();
+                    long delay = Math.max(ERROR_BACKOFF_SEC, tokenResp.retryAfterSeconds);
+                    scheduleNext(delay, currentGen);
+                    return delay;
                 } else {
-                    scheduleNext(ERROR_BACKOFF_SEC);
+                    handleError();
+                    scheduleNext(ERROR_BACKOFF_SEC, currentGen);
                     return ERROR_BACKOFF_SEC;
                 }
             } else {
-                scheduleNext(IDLE_POLL_INTERVAL_SEC);
+                scheduleNext(IDLE_POLL_INTERVAL_SEC, currentGen);
                 return IDLE_POLL_INTERVAL_SEC;
             }
         }
 
         SpotifyApiClient.PlaybackResponse resp = apiClient.fetchCurrentlyPlaying(accessToken);
+
+        // Check if stopped or session changed while the network request was in flight
+        synchronized (this) {
+            if (generation != currentGen || !tokenStore.hasRefreshToken()) {
+                return 0; // Discard late response
+            }
+        }
+
         long nextDelay = IDLE_POLL_INTERVAL_SEC;
 
         if (resp.statusCode == 200) {
+            consecutiveErrors = 0;
             boolean hasArt = false;
             if (resp.isPlaying) {
                 nextDelay = ACTIVE_POLL_INTERVAL_SEC;
                 if (!resp.albumArtUrl.isEmpty()) {
-                    hasArt = syncAlbumArt(resp.albumArtUrl);
+                    hasArt = syncAlbumArt(resp.albumArtUrl, currentGen);
                 } else {
                     clearCachedArt();
                 }
             } else {
                 nextDelay = IDLE_POLL_INTERVAL_SEC;
+            }
+
+            synchronized (this) {
+                if (generation != currentGen) {
+                    return 0;
+                }
             }
 
             boolean changed = SpotifyNowPlayingProvider.setPlaybackState(
@@ -188,6 +246,7 @@ public class SpotifyPoller {
             }
         } else if (resp.statusCode == 204) {
             // Idle / No music playing
+            consecutiveErrors = 0;
             nextDelay = IDLE_POLL_INTERVAL_SEC;
             clearCachedArt();
             boolean changed = SpotifyNowPlayingProvider.setPlaybackState(false, "", "", "", "", 0, 0, false);
@@ -195,47 +254,69 @@ public class SpotifyPoller {
                 notifyProviderChange();
             }
         } else if (resp.statusCode == 401 || resp.tokenExpired) {
-            // Token expired during call; refresh next cycle immediately
-            nextDelay = 1L;
             String refreshToken = tokenStore.getRefreshToken();
             String clientId = tokenStore.getClientId();
             if (refreshToken != null && clientId != null) {
                 SpotifyApiClient.TokenResponse tokenResp = apiClient.refreshAccessToken(clientId, refreshToken);
                 if (tokenResp.success) {
                     tokenStore.saveTokens(clientId, tokenResp.accessToken, tokenResp.refreshToken, tokenResp.expiresIn);
+                    consecutiveErrors = 0;
+                    nextDelay = 1L; // Retry playback query with fresh access token soon
                 } else if ("invalid_grant".equals(tokenResp.error)) {
                     tokenStore.clear();
                     SpotifyNowPlayingProvider.clearPlaybackState(context);
                     notifyProviderChange();
+                    nextDelay = IDLE_POLL_INTERVAL_SEC;
+                } else if (tokenResp.statusCode == 429) {
+                    handleError();
+                    nextDelay = Math.max(ERROR_BACKOFF_SEC, tokenResp.retryAfterSeconds);
+                } else {
+                    // Transient failure on refresh (5xx, timeout, network error): safe backoff without 1s loop!
+                    handleError();
+                    nextDelay = ERROR_BACKOFF_SEC;
                 }
+            } else {
+                nextDelay = IDLE_POLL_INTERVAL_SEC;
             }
         } else if (resp.statusCode == 429) {
+            handleError();
             if (resp.quotaExceeded) {
-                // Spotify July 2026 Quota Exceeded: back off for 1 hour to prevent request loops
                 nextDelay = QUOTA_EXCEEDED_BACKOFF_SEC;
             } else {
-                // Rate limited: adhere strictly to Retry-After header (minimum 15s)
                 nextDelay = Math.max(ACTIVE_POLL_INTERVAL_SEC, resp.retryAfterSeconds);
             }
         } else if (resp.statusCode == 403 && resp.quotaExceeded) {
+            handleError();
             nextDelay = QUOTA_EXCEEDED_BACKOFF_SEC;
         } else {
+            handleError();
             nextDelay = ERROR_BACKOFF_SEC;
         }
 
-        scheduleNext(nextDelay);
+        scheduleNext(nextDelay, currentGen);
         return nextDelay;
     }
 
-    private void scheduleNext(long delaySec) {
+    private void handleError() {
+        consecutiveErrors++;
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS_BEFORE_EXPIRY) {
+            boolean changed = SpotifyNowPlayingProvider.setPlaybackState(false, "", "", "", "", 0, 0, false);
+            clearCachedArt();
+            if (changed) {
+                notifyProviderChange();
+            }
+        }
+    }
+
+    private void scheduleNext(long delaySec, int currentGen) {
         synchronized (this) {
-            if (running) {
+            if (running && generation == currentGen) {
                 schedulePoll(delaySec, TimeUnit.SECONDS);
             }
         }
     }
 
-    private boolean syncAlbumArt(String artUrl) {
+    private boolean syncAlbumArt(String artUrl, int currentGen) {
         if (artUrl == null || artUrl.isEmpty() || !artUrl.startsWith("https://")) {
             clearCachedArt();
             return false;
@@ -248,6 +329,12 @@ public class SpotifyPoller {
         }
 
         boolean success = apiClient.downloadAlbumArt(artUrl, artFile);
+        synchronized (this) {
+            if (generation != currentGen) {
+                clearCachedArt();
+                return false;
+            }
+        }
         if (success) {
             lastDownloadedArtUrl = artUrl;
             return true;
