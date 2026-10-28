@@ -16,9 +16,22 @@ public class SpotifyTokenStore implements TokenStorage {
     private static final String KEY_EXPIRES_AT = "expires_at";
 
     private final SharedPreferences prefs;
+    private long sessionVersion = 0L;
 
     public SpotifyTokenStore(Context context) {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+    }
+
+    public synchronized long getSessionVersion() {
+        return sessionVersion;
+    }
+
+    public synchronized boolean saveTokensIfVersion(long expectedVersion, String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+        if (this.sessionVersion != expectedVersion) {
+            return false;
+        }
+        saveTokens(clientId, accessToken, refreshToken, expiresInSeconds);
+        return true;
     }
 
     public synchronized void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
@@ -68,6 +81,7 @@ public class SpotifyTokenStore implements TokenStorage {
     }
 
     public synchronized void clear() {
+        sessionVersion++;
         prefs.edit().clear().apply();
     }
 }

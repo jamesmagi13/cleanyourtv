@@ -52,22 +52,34 @@ public class SpotifyPollerTest {
         String accessToken = "valid-token";
         String refreshToken = "valid-refresh";
         boolean expired = false;
+        long sessionVersion = 0L;
 
         @Override
-        public void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+        public synchronized void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
             this.clientId = clientId;
             this.accessToken = accessToken;
             this.refreshToken = refreshToken;
             this.expired = false;
         }
 
-        @Override public String getClientId() { return clientId; }
-        @Override public String getAccessToken() { return accessToken; }
-        @Override public String getRefreshToken() { return refreshToken; }
-        @Override public boolean isExpired() { return expired; }
-        @Override public boolean hasRefreshToken() { return refreshToken != null && !refreshToken.isEmpty(); }
         @Override
-        public void clear() {
+        public synchronized boolean saveTokensIfVersion(long expectedVersion, String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+            if (this.sessionVersion != expectedVersion) {
+                return false;
+            }
+            saveTokens(clientId, accessToken, refreshToken, expiresInSeconds);
+            return true;
+        }
+
+        @Override public synchronized long getSessionVersion() { return sessionVersion; }
+        @Override public synchronized String getClientId() { return clientId; }
+        @Override public synchronized String getAccessToken() { return accessToken; }
+        @Override public synchronized String getRefreshToken() { return refreshToken; }
+        @Override public synchronized boolean isExpired() { return expired; }
+        @Override public synchronized boolean hasRefreshToken() { return refreshToken != null && !refreshToken.isEmpty(); }
+        @Override
+        public synchronized void clear() {
+            sessionVersion++;
             clientId = null;
             accessToken = null;
             refreshToken = null;
@@ -418,18 +430,208 @@ public class SpotifyPollerTest {
         assertEquals("Playing Song", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
         assertEquals(1, poller.getConsecutiveErrors());
 
-        // Poll 2: Second transient error -> still preserve
+        // Simulate passage of backoff time for Poll 2
+        poller.resetBackoff();
         long delay2 = poller.executePoll();
         assertEquals(SpotifyPoller.ERROR_BACKOFF_SEC, delay2);
         assertTrue("Track should stay visible on second failure", SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
         assertEquals(2, poller.getConsecutiveErrors());
 
-        // Poll 3: Prolonged error (3rd consecutive failure) -> expire track!
+        // Simulate passage of backoff time for Poll 3
+        poller.resetBackoff();
         long delay3 = poller.executePoll();
         assertEquals(SpotifyPoller.ERROR_BACKOFF_SEC, delay3);
         assertEquals(3, poller.getConsecutiveErrors());
         assertFalse("Track must expire after prolonged network failure", SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
         assertEquals("", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
         assertTrue("Notifier should be triggered on expiry", notifyCount.get() > 0);
+    }
+
+    @Test
+    public void lateTokenRefreshAfterLogoutIsDiscardedAndDoesNotResurrectTokens() throws Exception {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        storage.saveTokens("client-123", "expired-token", "refresh-token-old", 3600);
+        storage.expired = true; // Forces refreshAccessToken
+
+        java.util.concurrent.CountDownLatch refreshEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseRefresh = new java.util.concurrent.CountDownLatch(1);
+
+        String refreshedTokenJson = "{\"access_token\": \"resurrected_access\", \"refresh_token\": \"resurrected_refresh\", \"expires_in\": 3600}";
+
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            if (url.contains("/api/token")) {
+                refreshEntered.countDown();
+                try {
+                    releaseRefresh.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+                return new MockHttpConnection(new URL(url), 200, refreshedTokenJson);
+            }
+            return new MockHttpConnection(new URL(url), 200, "{}");
+        });
+
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, () -> {});
+
+        // Start executePoll on a worker thread
+        java.util.concurrent.ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            java.util.concurrent.Future<Long> pollFuture = worker.submit(poller::executePoll);
+
+            // Wait until token refresh is blocking on network
+            assertTrue(refreshEntered.await(5, TimeUnit.SECONDS));
+
+            // User logs out concurrently!
+            storage.clear();
+            assertFalse(storage.hasRefreshToken());
+            assertNull(storage.getAccessToken());
+
+            // Release the late refresh HTTP response
+            releaseRefresh.countDown();
+            long resultDelay = pollFuture.get(5, TimeUnit.SECONDS);
+
+            // Late refresh must be completely discarded; tokens must NOT be saved!
+            assertEquals(0L, resultDelay);
+            assertFalse("Late token refresh must never resurrect credentials after logout", storage.hasRefreshToken());
+            assertNull(storage.getAccessToken());
+            assertNull(storage.getRefreshToken());
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    public void eliminationOfConcurrencyWindowGuaranteesCancelledPollNeverPublishesMetadataOrArt() throws Exception {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        java.util.concurrent.CountDownLatch artDownloadEntered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch releaseArtDownload = new java.util.concurrent.CountDownLatch(1);
+
+        String playbackJson = "{\"is_playing\": true, \"item\": {\"name\": \"Race Track\", \"artists\": [{\"name\": \"Race Artist\"}], \"album\": {\"name\": \"Race Album\", \"images\": [{\"url\": \"https://i.scdn.co/image/race123\"}]}}, \"progress_ms\": 500}";
+
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            if (url.startsWith("https://i.scdn.co/")) {
+                artDownloadEntered.countDown();
+                try {
+                    releaseArtDownload.await(5, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {}
+                return new MockHttpConnection(new URL(url), 200, "image-payload");
+            }
+            return new MockHttpConnection(new URL(url), 200, playbackJson);
+        });
+
+        SpotifyNowPlayingProvider.clearPlaybackState(null);
+
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, () -> {});
+        poller.start();
+
+        java.util.concurrent.ExecutorService worker = Executors.newSingleThreadExecutor();
+        try {
+            java.util.concurrent.Future<Long> pollFuture = worker.submit(poller::executePoll);
+
+            // Wait until album art download is blocking
+            assertTrue(artDownloadEntered.await(5, TimeUnit.SECONDS));
+
+            // Concurrently stop poller (screensaver closes or unobserved)
+            poller.stop();
+            assertFalse(poller.isRunning());
+
+            // Release art download
+            releaseArtDownload.countDown();
+            long result = pollFuture.get(5, TimeUnit.SECONDS);
+
+            // Must discard atomically: result 0, no metadata in provider, no art on disk
+            assertEquals(0L, result);
+            assertFalse(SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
+            assertEquals("", SpotifyNowPlayingProvider.getPlaybackSnapshot().trackTitle);
+            File artFile = new File(tempCacheDir, "now_playing_art.png");
+            assertFalse("Canceled in-flight art must be cleaned up and never persist", artFile.exists());
+        } finally {
+            worker.shutdownNow();
+        }
+    }
+
+    @Test
+    public void retryAfterAndQuotaExceededBackoffsArePreservedAcrossStopAndStart() {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+
+        // 1. HTTP 429 with Retry-After: 45
+        SpotifyApiClient client429 = new SpotifyApiClient(url -> {
+            MockHttpConnection conn = new MockHttpConnection(new URL(url), 429, "{}");
+            conn.setHeader("Retry-After", "45");
+            return conn;
+        });
+
+        SpotifyPoller poller = new SpotifyPoller(null, client429, storage, scheduler, false, tempCacheDir, () -> {});
+        poller.start();
+
+        long delay429 = poller.executePoll();
+        assertEquals(45L, delay429);
+        assertTrue(poller.getBackoffRemainingSeconds() >= 44L);
+
+        // Screensaver closes: stop()
+        poller.stop();
+        assertFalse(poller.isRunning());
+        // Remaining backoff must still be preserved
+        assertTrue(poller.getBackoffRemainingSeconds() >= 44L);
+
+        // Screensaver reopens: start() must NOT bypass backoff (delay > 0)
+        poller.start();
+        assertTrue(poller.isRunning());
+        assertTrue("Backoff must not be bypassed by start()", poller.getBackoffRemainingSeconds() >= 43L);
+        // pollImmediately also must honor remaining backoff
+        poller.pollImmediately();
+        assertTrue(poller.getBackoffRemainingSeconds() >= 43L);
+
+        // 2. HTTP 403 QUOTA_EXCEEDED (3600 seconds backoff)
+        String quotaJson = "{\"error\": {\"status\": 403, \"reason\": \"QUOTA_EXCEEDED\", \"message\": \"Quota reached\"}}";
+        SpotifyApiClient clientQuota = new SpotifyApiClient(url -> new MockHttpConnection(new URL(url), 403, quotaJson));
+        SpotifyPoller pollerQuota = new SpotifyPoller(null, clientQuota, storage, scheduler, false, tempCacheDir, () -> {});
+        pollerQuota.start();
+
+        long delayQuota = pollerQuota.executePoll();
+        assertEquals(SpotifyPoller.QUOTA_EXCEEDED_BACKOFF_SEC, delayQuota);
+        assertTrue(pollerQuota.getBackoffRemainingSeconds() >= 3590L);
+
+        // Stop and restart screensaver
+        pollerQuota.stop();
+        assertTrue(pollerQuota.getBackoffRemainingSeconds() >= 3590L);
+        pollerQuota.start();
+        assertTrue("Quota backoff must be preserved across stop/start", pollerQuota.getBackoffRemainingSeconds() >= 3590L);
+    }
+
+    @Test
+    public void transitionLogoutToNewLoginWithActiveSubscriberRestartsPollingWithValidSession() {
+        InMemoryTokenStorage storage = new InMemoryTokenStorage();
+        storage.saveTokens("client", "access1", "refresh1", 3600);
+
+        String trackJson = "{\"is_playing\": true, \"item\": {\"name\": \"Account 2 Song\", \"artists\": [{\"name\": \"Artist 2\"}], \"album\": {\"name\": \"Album 2\", \"images\": []}}, \"progress_ms\": 100}";
+        AtomicInteger networkHits = new AtomicInteger(0);
+        SpotifyApiClient client = new SpotifyApiClient(url -> {
+            networkHits.incrementAndGet();
+            return new MockHttpConnection(new URL(url), 200, trackJson);
+        });
+
+        SpotifyPoller poller = new SpotifyPoller(null, client, storage, scheduler, false, tempCacheDir, () -> {});
+
+        // 1. Screensaver is open and subscribed
+        SpotifyNowPlayingProvider.resetSubscribersForTesting();
+        SpotifyNowPlayingProvider.setLiveState(false, "", "", "", 0, 0);
+        // Simulate subscriber
+        SpotifyNowPlayingProvider.handleSubscription(SpotifyContract.METHOD_SUBSCRIBE, null, poller);
+        assertEquals(1, SpotifyNowPlayingProvider.getSubscriberCount());
+        assertTrue(poller.isRunning());
+
+        // 2. User logs out: onSessionTerminated
+        poller.onSessionTerminated();
+        storage.clear();
+        assertFalse("Poller must stop on session termination", poller.isRunning());
+        assertFalse("Tokens must be cleared", storage.hasRefreshToken());
+        assertEquals("Subscriber count remains 1 because screensaver is still open", 1, SpotifyNowPlayingProvider.getSubscriberCount());
+
+        // 3. User logs in with new valid account
+        storage.saveTokens("client2", "access2", "refresh2", 3600);
+        assertTrue(storage.hasRefreshToken());
+
+        // 4. Session restored: because subscriberCount == 1, polling must restart immediately!
+        poller.onSessionRestored();
+        assertTrue("Poller must automatically resume when screensaver is still active", poller.isRunning());
     }
 }

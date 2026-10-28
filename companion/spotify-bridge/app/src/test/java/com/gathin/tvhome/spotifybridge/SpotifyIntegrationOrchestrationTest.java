@@ -289,6 +289,21 @@ public class SpotifyIntegrationOrchestrationTest {
     }
 
     @Test
+    public void testLateOAuthCodeExchangeAfterLogoutCannotPersistTokens() {
+        SpotifyPollerTestMockStorage storage = new SpotifyPollerTestMockStorage();
+        long sessionVersion = storage.getSessionVersion();
+
+        // Simulate code exchange starting at sessionVersion
+        // Concurrently, user clicks disconnect:
+        storage.clear(); // increments sessionVersion
+
+        // Late response arrives from token exchange:
+        boolean saved = storage.saveTokensIfVersion(sessionVersion, "client", "late_access", "late_refresh", 3600);
+        assertFalse("Late OAuth token exchange must be rejected when session was invalidated", saved);
+        assertNull(storage.getAccessToken());
+    }
+
+    @Test
     public void testLogoutNotifiesObserverImmediately() {
         SpotifyNowPlayingProvider.setPlaybackState(true, "Leaving Song", "Artist", "Album", "uri", 3000, 1000, true);
         assertTrue(SpotifyNowPlayingProvider.getPlaybackSnapshot().isPlaying);
@@ -363,12 +378,31 @@ public class SpotifyIntegrationOrchestrationTest {
     }
 
     private static class SpotifyPollerTestMockStorage implements TokenStorage {
-        @Override public void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {}
-        @Override public String getClientId() { return "client"; }
-        @Override public String getAccessToken() { return "access"; }
-        @Override public String getRefreshToken() { return "refresh"; }
+        private long sessionVersion = 0L;
+        private String clientId = "client";
+        private String accessToken = null;
+        private String refreshToken = null;
+
+        @Override public void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+            this.clientId = clientId;
+            this.accessToken = accessToken;
+            this.refreshToken = refreshToken;
+        }
+        @Override public boolean saveTokensIfVersion(long expectedVersion, String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+            if (this.sessionVersion != expectedVersion) return false;
+            saveTokens(clientId, accessToken, refreshToken, expiresInSeconds);
+            return true;
+        }
+        @Override public long getSessionVersion() { return sessionVersion; }
+        @Override public String getClientId() { return clientId; }
+        @Override public String getAccessToken() { return accessToken; }
+        @Override public String getRefreshToken() { return refreshToken; }
         @Override public boolean isExpired() { return false; }
-        @Override public boolean hasRefreshToken() { return true; }
-        @Override public void clear() {}
+        @Override public boolean hasRefreshToken() { return refreshToken != null && !refreshToken.isEmpty(); }
+        @Override public void clear() {
+            sessionVersion++;
+            accessToken = null;
+            refreshToken = null;
+        }
     }
 }

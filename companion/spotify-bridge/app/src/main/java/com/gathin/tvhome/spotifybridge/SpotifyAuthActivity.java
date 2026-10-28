@@ -117,6 +117,7 @@ public class SpotifyAuthActivity extends Activity {
 
         String redirectUri = SpotifyLoopbackServer.DEFAULT_REDIRECT_URI;
         String authUrl = SpotifyAuthSession.startSession(clientId, redirectUri);
+        final long expectedVersion = tokenStore.getSessionVersion();
 
         if (statusView != null) {
             statusView.setText(R.string.auth_status_waiting);
@@ -142,10 +143,13 @@ public class SpotifyAuthActivity extends Activity {
                     return false;
                 }
                 if (tokenResp.success) {
-                    tokenStore.saveTokens(clientId, tokenResp.accessToken, tokenResp.refreshToken, tokenResp.expiresIn);
+                    boolean saved = tokenStore.saveTokensIfVersion(expectedVersion, clientId, tokenResp.accessToken, tokenResp.refreshToken, tokenResp.expiresIn);
+                    if (!saved || loginCancelled) {
+                        return false;
+                    }
                     runOnUiThread(() -> {
                         updateStatusUI();
-                        SpotifyPoller.getInstance(getApplicationContext()).pollImmediately();
+                        SpotifyPoller.getInstance(getApplicationContext()).onSessionRestored();
                     });
                     return true;
                 } else {
@@ -188,7 +192,7 @@ public class SpotifyAuthActivity extends Activity {
         tokenStore.clear();
         Context ctx = getApplicationContext() != null ? getApplicationContext() : this;
         SpotifyNowPlayingProvider.clearPlaybackState(ctx);
-        SpotifyPoller.getInstance(ctx).stop();
+        SpotifyPoller.getInstance(ctx).onSessionTerminated();
         updateStatusUI();
     }
 }
