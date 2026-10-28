@@ -5,6 +5,8 @@ import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.util.DisplayMetrics;
 import android.util.Log;
@@ -30,8 +32,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /** Displays and rotates a theme's local wallpaper images while Home is visible. */
-final class WallpaperPlayer {
-    private final FrameLayout root;
+final class WallpaperPlayer implements WallpaperPlayback {
+    private FrameLayout root;
+    private final boolean gallery;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final WallpaperWork work = new WallpaperWork();
+    private final Runnable rotationTick = this::update;
     private final ImageView image;
     private final int backgroundColor;
     private final List<File> files;
@@ -50,7 +56,6 @@ final class WallpaperPlayer {
     private Bitmap current;
     private boolean active;
     private boolean closed;
-    private boolean loading;
     private String displayed = "";
     /** wallpaper_captions: the shown picture's name from wallpapers/captions.txt; null when off or there are none. */
     private final TextView caption;
@@ -63,7 +68,12 @@ final class WallpaperPlayer {
     private int[] sun;
 
     WallpaperPlayer(Context context, FrameLayout root, Config config) {
+        this(context, root, config, false);
+    }
+
+    WallpaperPlayer(Context context, FrameLayout root, Config config, boolean gallery) {
         this.root = root;
+        this.gallery = gallery;
         backgroundColor = config.backgroundColor;
         files = new ArrayList<>(config.wallpapers);
         interval = config.wallpaperRotationMinutes * 60_000L;
@@ -94,7 +104,7 @@ final class WallpaperPlayer {
         if (config.wallpaperEnabled && !files.isEmpty()) {
             root.addView(image, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-            showFirst();
+            if (!gallery) showFirst();
         }
     }
 
@@ -128,24 +138,29 @@ final class WallpaperPlayer {
         }
     }
 
-    void start() {
+    @Override public void start() {
+        if (closed) return;
         active = true;
+        work.start();
         update();
     }
 
-    void stop() {
+    @Override public void stop() {
         active = false;
+        work.stop();
+        handler.removeCallbacks(rotationTick);
+        if (caption != null) caption.animate().cancel();
     }
 
     /** Drops the wallpaper texture when Home is hidden and Android asks the process to free memory. */
-    void releaseForMemoryPressure() {
+    @Override public void releaseForMemoryPressure() {
         if (current == null) return;
         image.setImageDrawable(null);
         // The renderer may still have a queued frame that references this hardware bitmap. Drop our references and
         // let Android reclaim its native buffer after rendering releases it instead of recycling it mid-frame.
         current = null;
         displayed = "";
-        root.setBackgroundColor(backgroundColor);
+        if (root != null) root.setBackgroundColor(backgroundColor);
     }
 
     /** The pictures the rotation picks from now: wallpaper_moods' group for the time of day, or the whole collection. */
@@ -159,46 +174,102 @@ final class WallpaperPlayer {
         return WallpaperMood.select(files, moods, WallpaperMood.timeOfDay(now.getHour() * 60 + now.getMinute(), sun[0], sun[1]));
     }
 
-    void close() {
-        active = false;
+    @Override public void close() {
+        stop();
         closed = true;
+        work.close();
         decoder.shutdownNow();
+        if (gallery) {
+            detach();
+            image.setImageDrawable(null);
+            current = null;
+        }
     }
 
-    void update() {
-        if (!active || closed || loading || files.isEmpty()) return;
+    /** Transfer the existing views and GPU image, not copies, between visible hosts. */
+    void attach(FrameLayout target, boolean clock) {
+        detach();
+        root = target;
+        root.addView(image, 0, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        if (caption != null) {
+            FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) caption.getLayoutParams();
+            float dp = image.getResources().getDisplayMetrics().density;
+            params.gravity = (clock ? Gravity.BOTTOM : Gravity.TOP) | Gravity.END;
+            params.topMargin = clock ? 0 : Math.round(110 * dp);
+            params.bottomMargin = clock ? Math.round(40 * dp) : 0;
+            caption.setSingleLine(!clock);
+            caption.setMaxLines(clock ? 2 : 1);
+            root.addView(caption, params);
+            showCaption(false);
+        }
+        root.setBackgroundColor(current == null ? backgroundColor : 0);
+    }
+
+    void detach() {
+        if (image.getParent() instanceof ViewGroup) ((ViewGroup) image.getParent()).removeView(image);
+        if (caption != null) {
+            caption.animate().cancel();
+            if (caption.getParent() instanceof ViewGroup) ((ViewGroup) caption.getParent()).removeView(caption);
+        }
+        root = null;
+    }
+
+    /** Include presentation options as well as collection identity when deciding whether to reuse a session. */
+    static String galleryKey(Config cfg) {
+        return cfg.wallpapers.toString() + collectionKey(cfg.wallpapers) + "|" + cfg.wallpaperEnabled
+                + "|" + cfg.wallpaperRotationMinutes + "|" + cfg.wallpaperOrder + "|" + cfg.wallpaperDim
+                + "|" + cfg.wallpaperTrueColor + "|" + cfg.wallpaperCaptions + "|" + cfg.backgroundColor
+                + "|" + cfg.wallpaperMoods.toString();
+    }
+
+    private void schedule() {
+        if (!gallery || !active || closed || files.isEmpty()) return;
+        handler.removeCallbacks(rotationTick);
+        handler.postDelayed(rotationTick, WallpaperRotation.checkDelay(
+                preferences.getLong("changed", 0), System.currentTimeMillis(), interval));
+    }
+
+    @Override public void update() {
+        handler.removeCallbacks(rotationTick);
+        if (!work.canLoad() || files.isEmpty()) return;
         String previous = preferences.getString("image", "");
         // A picture outside the time of day's group (the group changed) is replaced at once, not after the interval.
-        List<File> playable = playable();
+        List<File> playable = work.readable(playable());
         File selected = WallpaperRotation.find(playable, previous);
         long changed = preferences.getLong("changed", 0);
         if (selected == null || WallpaperRotation.due(changed, System.currentTimeMillis(), interval)) {
             selected = WallpaperRotation.pick(playable, previous, order, random);
         }
-        if (selected == null || selected.getName().equals(displayed)) return;
+        if (selected == null) return; // no readable candidates: do not retry forever
+        if (selected.getName().equals(displayed)) {
+            schedule();
+            return;
+        }
         File next = selected;
-        loading = true;
+        long ticket = work.begin();
         decoder.execute(() -> {
             Bitmap bitmap = decode(next);
-            root.post(() -> {
-                loading = false;
-                if (closed || !active) {
+            handler.post(() -> {
+                if (!work.complete(ticket)) {
                     if (bitmap != null) bitmap.recycle();
+                    if (active && !closed) update();
                     return;
                 }
                 if (bitmap == null) {
-                    files.remove(next);
+                    work.reject(next);
                     Log.w("TvHome.Wallpaper", "Skipping unreadable image: " + next.getName());
                     update();
                     return;
                 }
                 show(bitmap);
                 displayed = next.getName();
-                showCaption(true);
-                if (!displayed.equals(previous) || changed == 0) {
-                    preferences.edit().putString("image", displayed)
-                            .putLong("changed", System.currentTimeMillis()).apply();
+                showCaption(!gallery); // gallery switches text with the image, never the previous title
+                long changedAt = WallpaperRotation.changedAt(previous, displayed, changed, System.currentTimeMillis());
+                if (!displayed.equals(previous) || changedAt != changed) {
+                    preferences.edit().putString("image", displayed).putLong("changed", changedAt).apply();
                 }
+                schedule();
             });
         });
     }
@@ -266,10 +337,19 @@ final class WallpaperPlayer {
         // The wallpaper covers the whole root; avoid drawing the fallback colour under it.
         root.setBackground(null);
         image.setImageBitmap(bitmap);
-        if (old != null && old != bitmap) image.postDelayed(old::recycle, 500);
+        // Shared views may cross windows: let the renderer release the old hardware buffer safely.
+        if (!gallery && old != null && old != bitmap) image.postDelayed(old::recycle, 500);
     }
 
     private Bitmap decode(File file) {
+        try {
+            return WallpaperDecodeGuard.run(() -> decodeImage(file));
+        } catch (Exception | OutOfMemoryError failure) {
+            return null;
+        }
+    }
+
+    private Bitmap decodeImage(File file) {
         try {
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inJustDecodeBounds = true;

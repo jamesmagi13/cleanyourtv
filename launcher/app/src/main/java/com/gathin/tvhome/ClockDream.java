@@ -4,7 +4,7 @@ import android.service.dreams.DreamService;
 
 /**
  * Screensaver: the launcher's thin clock and date on black, over a slow ambient glow (ClockScene).
- * No network, no images: cheap enough for a 1 GB TV.
+ * Optional local gallery shares Home's player; no network.
  */
 public class ClockDream extends DreamService {
 
@@ -35,7 +35,8 @@ public class ClockDream extends DreamService {
 
     @Override
     public void onDetachedFromWindow() {
-        if (scene != null) scene.stop();
+        if (scene != null) scene.close();
+        scene = null;
         super.onDetachedFromWindow();
     }
 }

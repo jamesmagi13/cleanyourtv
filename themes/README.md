@@ -122,6 +122,7 @@ A new key needs one there in the same pull request.
 | `idle_art_mode_seconds` | 0 to 86400 | Seconds Home may sit untouched before the navigation UI fades to `idle_art_mode_opacity`, leaving the wallpaper clear; 0 is off (default) |
 | `idle_art_mode_opacity` | 0 to 100 | Opacity of the navigation UI during idle art mode, in percent (30 by default) |
 | `clock_wallpaper` | bool | The clock screensaver over Home's wallpaper instead of black with a coloured glow; the clock still moves every minute (`false` by default) |
+| `clock_gallery` | bool | Share Home's local paintings, captions and rotation deadline with both clock screens; CENTER_CROP preserves proportions with possible edge cropping. Uses Home wallpaper settings; overrides clock_wallpaper/glow/dim. Off by default; does not activate a screensaver or change Idle Art opacity. |
 | `clock_wallpaper_dim` | 0 to 90 | How dark that wallpaper is behind the clock, in percent (50 by default) |
 | `clock_glow` | bool | The clock screensaver's coloured glow (`true` by default); `false` leaves the moving clock on plain black, e.g. for an OLED |
 | `glow_style` | string | Shape of the glow behind the focused app, in its colour: `radial` (default) or `horizon`, the colour washing down from the top edge to black; the cinematic shelf keeps its own |

@@ -39,6 +39,12 @@ public class ClockActivity extends Activity {
     }
 
     @Override
+    protected void onDestroy() {
+        if (scene != null) scene.close();
+        super.onDestroy();
+    }
+
+    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
         // The key that wakes the clock should not also act on Home, so it is consumed here.
         if (event.getAction() == KeyEvent.ACTION_UP) finish();

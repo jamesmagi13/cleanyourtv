@@ -134,7 +134,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private RecyclerView grid;
     private FrameLayout root;
     private View topButtons;
-    private WallpaperPlayer wallpaperPlayer;
+    private WallpaperPlayback wallpaperPlayer;
     private GlassView glass;
     private View ambient;
     private View heroScrim;
@@ -417,7 +417,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // black under it is a second full-screen fill on every frame for nothing. The starting window still uses
         // the theme's background, so launch looks the same.
         getWindow().setBackgroundDrawable(null);
-        wallpaperPlayer = new WallpaperPlayer(this, root, cfg);
+        wallpaperPlayer = cfg.clockGallery ? WallpaperGallery.open(this, root, cfg, false)
+                : new WallpaperPlayer(this, root, cfg);
         sky = findViewById(R.id.sky);
         sky.setIntensity(cfg.skyIntensity);
         glass = findViewById(R.id.glass);

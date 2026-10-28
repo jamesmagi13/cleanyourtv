@@ -82,6 +82,18 @@ final class WallpaperRotation {
         return ORDER_SEQUENTIAL.equals(order) ? next(images, previous) : pick(images, previous, random);
     }
 
+    /** Restoring the selected image in another host must not give it a fresh interval. */
+    static long changedAt(String previous, String shown, long changed, long now) {
+        return shown.equals(previous) && changed != 0 ? changed : now;
+    }
+
+    /** Check moods at least once a minute, but never postpone a pending rotation past its deadline.
+     * An already-due single/unreadable selection must not cause a busy loop. */
+    static long checkDelay(long previous, long now, long interval) {
+        if (interval <= 0 || due(previous, now, interval)) return 60_000L;
+        return Math.max(1L, Math.min(60_000L, interval - (now - previous)));
+    }
+
     static boolean due(long previous, long now, long interval) {
         return interval > 0 && (previous == 0 || now < previous || now - previous >= interval);
     }

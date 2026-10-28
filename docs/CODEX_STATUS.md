@@ -1,9 +1,20 @@
 # CleanYourTV / Reimagui — continuidade
 
-- Atualização: 2026-10-25 21:41 UTC. Responsável: Codex.
-- Repositório: `jamesmagi13/cleanyourtv`; branch `feat/reimagui-idle-art-v144`.
-- Commit publicado dos resultados R2: `27dade59593166f7231728d2d2ebc9284ff37749`;
-  os três documentos foram confirmados no GitHub. Esta atualização documental é apenas local.
+- Atualização: 2026-10-28. Responsável: Codex.
+- R3 local: branch `feat/reimagui-r3-clock-spotify`, base estável `6aa063da`.
+- [Plano R3](REIMAGUI_R3_PLAN.md): atualizado em 2026-10-28 para relógio-galeria: 90 obras,
+  legendas existentes, rotação 10 min e estado partilhado Home/relógio; Spotify só no relógio.
+- R3.1a implementada localmente: player único, legendas, prioridade do relógio e prazo partilhado.
+- `clock_gallery=false` por defeito; 273 testes JVM e 44 Python aprovados; build/lint sem erros.
+- Revisão dirigida: corrigida concorrência de decode entre sessões; 10 testes afetados passaram.
+- APK final 512.545 B (<524.288); lint sem erros/80 avisos. Android/TV não validados.
+- 5% só na navegação Home; galeria sem painel preto sólido nem película branca.
+- Candidato privado 5% e reversão exata 10% preparados e verificados offline; não aplicados.
+- Screensaver selecionado ainda desconhecido; Spotify não implementado.
+- Revisão final: lista fechada de 19 ficheiros; diff completo pronto. Sem ADB, instalação, commit/push.
+- Repositório: `jamesmagi13/cleanyourtv`; branch estável `feat/reimagui-idle-art-v144`.
+- Encerramento R2 publicado em `6aa063da`; conteúdo do relatório confirmado no GitHub
+  em 2026-10-28, igual ao local antes de R3. As alterações R3 são apenas locais.
 - **Preparação do teste 10%: 100% (5/5)** — origem R2, mudança única, hashes/diff,
   reversão byte a byte e procedimento de aplicação/restauração manual definidos.
 - **Fase de teste 10% CONCLUÍDA: 100% (5/5 marcos)** — candidato, preflight, escolhas,
@@ -11,7 +22,6 @@
   atenuação após 15s, recuperação pelo comando, navegação e pinturas/aplicações acessíveis.
 - **Preparação R2: 100% (4/4). Recolha encerrada com limitação: 83% (5/6 verificações)**.
   Confirmados sistema/HOME, APK, configuração, coleção e reversão JSON; preferências internas recusadas.
-- A percentagem dá peso igual a estas seis verificações; não é progresso global nem prova visual do idle.
 - R1 local concluída (7/7); segunda cópia física recomendada, não bloqueadora.
 - Decisão do utilizador em 2026-10-25: risco de perda do disco compreendido e aceite.
 
@@ -44,9 +54,6 @@
   individuais mantidos numa pasta privada nova, ignorada pelo Git, com permissões 0700/0600.
 - Preparado manifesto privado de evidências R2 e cópia exata para reversão.
 - Na recolha R2 outra aplicação estava à frente; na retomada atual Home foi recriado conforme autorização.
-- Nenhuma imagem extra identificada; verificação de presença/tamanho não equivale a hash dos 90 JPEGs.
-- A leitura normal de launcher_settings.xml foi recusada; essa parte foi encerrada sem privilégios adicionais.
-- Base original R2 coincide com a candidata R1; a configuração atual difere só em opacidade 10%.
 - Candidato criado a partir dos bytes exatos R2, mantendo formato, tamanho e todas as outras
   chaves. Apenas idle_art_mode_opacity mudou de 30 para 10; original preservado e hashes verificados.
 - Acrescentados diff de uma linha e ficha privada para anotar as seis escolhas visíveis antes do teste.
@@ -95,7 +102,6 @@
 - Ler ficheiros não prova por si só o estado em memória. Cruzar configuração recolhida,
   launcher e contexto observado; não exigir instrumentação ou reinício só para eliminar essa dúvida.
 - Preservar HOME, acesso ADB, vídeo, Live TV, HDMI e Bluetooth antes de intervenções.
-- As listras deixam de ser hipótese de defeito gráfico; não há investigação pendente.
 - Pendentes nesta fase: ensaios prolongados de rotação/desempenho e nova validação de
   vídeo/Live TV/HDMI/Bluetooth/reinício; não executados nem necessários para aprovar o teste dirigido.
 
@@ -104,8 +110,8 @@
 - **GO / fase concluída:** JSON 10%, nova Home focada, coleção preservada e sucesso físico
   confirmado pelo utilizador. Manter 10%; original 30% disponível se for necessário reverter.
 - Segunda cópia física e correspondência exata APK/commit não são requisitos bloqueadores.
-- Próximo passo autorizado: publicar apenas estes três documentos e verificar correspondência no GitHub.
-  Depois, aguardar definição da próxima fase. Volume externo e outras operações exigem autorização própria.
+- Próximo passo R3: revisão do diff e aprovação antes de commit/push; Spotify é etapa seguinte.
+  Validar na TV apenas em sessão futura autorizada. Rever diff antes de commit/push.
 
 ## Rotina de sincronização
 

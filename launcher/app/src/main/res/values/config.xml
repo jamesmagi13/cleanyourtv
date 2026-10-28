@@ -400,6 +400,9 @@
     <!-- The clock screensaver (Home idle clock and the system screensaver) over Home's wallpaper instead of black with
          a coloured glow. The clock still moves every minute. Can also be set with "clock_wallpaper" in a theme. -->
     <bool name="clock_wallpaper">false</bool>
+    <!-- Opt-in Home/clock gallery sharing one player, captions and rotation deadline.
+         Uses Home wallpaper settings, not clock_wallpaper_dim or clock_glow. -->
+    <bool name="clock_gallery">false</bool>
     <!-- How dark that wallpaper is behind the clock, 0 to 90 %. Can also be set with "clock_wallpaper_dim". -->
     <integer name="clock_wallpaper_dim">50</integer>
     <!-- The clock screensaver's slow coloured glow behind the clock. false leaves the clock and date alone on plain black

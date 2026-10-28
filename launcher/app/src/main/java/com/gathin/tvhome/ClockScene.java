@@ -14,6 +14,9 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.View;
+import android.view.ViewGroup;
+import android.widget.FrameLayout;
+import android.widget.TextView;
 
 import java.io.File;
 import java.util.Random;
@@ -37,6 +40,15 @@ final class ClockScene {
     private final View content;
     private final View ambient;
     private final GradientDrawable glow;
+    private WallpaperPlayback gallery;
+    private boolean running;
+    private final Runnable reveal = this::revealClock;
+
+    private void revealClock() {
+        if (!running) return;
+        placeClock();
+        if (gallery == null) content.animate().alpha(1f).setDuration(1200).start();
+    }
     private int colorIndex;
     private int glowColor;
     /** clock_wallpaper or clock_glow false: something else (a picture, or plain black) replaced the coloured glow. */
@@ -71,20 +83,28 @@ final class ClockScene {
     }
 
     void start() {
-        content.setAlpha(0f);
-        content.post(() -> {
-            placeClock();
-            content.animate().alpha(1f).setDuration(1200).start();
-        });
+        running = true;
+        content.setAlpha(gallery == null ? 0f : 1f);
+        content.removeCallbacks(reveal);
+        content.post(reveal);
+        if (gallery != null) gallery.start();
         handler.removeCallbacks(tick);
         handler.postDelayed(tick, MOVE_MS);
         if (wallpaperFile != null && !wallpaperShown) loadWallpaper();
     }
 
     void stop() {
+        running = false;
+        content.removeCallbacks(reveal);
+        if (gallery != null) gallery.stop();
         handler.removeCallbacksAndMessages(null);   // the tick and any glow steps still queued
         content.animate().cancel();
         wallpaperGeneration++;   // a decode still running must not attach its picture to a stopped scene
+    }
+
+    void close() {
+        stop();
+        if (gallery != null) gallery.close();
     }
 
     /**
@@ -98,6 +118,18 @@ final class ClockScene {
         try {
             cfg = Config.load(ctx);
         } catch (RuntimeException e) {
+            return;
+        }
+        if (cfg.clockGallery) {
+            FrameLayout parent = (FrameLayout) content.getParent();
+            FrameLayout backdrop = new FrameLayout(ctx);
+            parent.addView(backdrop, 0, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            parent.setBackgroundColor(cfg.backgroundColor);
+            ambient.setVisibility(View.GONE);
+            wallpaperShown = true; // no glow or clock-specific dim over the paintings
+            gallery = WallpaperGallery.open(ctx, backdrop, cfg, true);
+            styleGalleryClock(content);
             return;
         }
         if (!cfg.clockWallpaper) {
@@ -161,6 +193,10 @@ final class ClockScene {
     }
 
     private void moveClock() {
+        if (gallery != null) {
+            placeClock(); // remain visible: never fade the gallery clock to zero
+            return;
+        }
         content.animate().alpha(0f).setDuration(900).withLayer().withEndAction(() -> {
             placeClock();
             content.animate().alpha(1f).setDuration(1200).withLayer().start();
@@ -172,13 +208,31 @@ final class ClockScene {
         View parent = (View) content.getParent();
         int maxX = Math.max(0, parent.getWidth() - content.getWidth());
         int maxY = Math.max(0, parent.getHeight() - content.getHeight());
-        float x = maxX * (0.1f + 0.8f * random.nextFloat());
-        float y = maxY * (0.1f + 0.8f * random.nextFloat());
+        float x = maxX * (gallery == null ? 0.1f + 0.8f * random.nextFloat()
+                : 0.04f + 0.04f * random.nextFloat());
+        float y = maxY * (gallery == null ? 0.1f + 0.8f * random.nextFloat()
+                : 0.04f + 0.04f * random.nextFloat());
         content.setX(x);
         content.setY(y);
         if (parent.getWidth() > 0 && parent.getHeight() > 0) {
             glow.setGradientCenter((x + content.getWidth() / 2f) / parent.getWidth(),
                     (y + content.getHeight() / 2f) / parent.getHeight());
+        }
+    }
+
+    /** Same transparent text/shadow treatment as the captions; keep most of the canvas clear. */
+    private static void styleGalleryClock(View view) {
+        if (view instanceof TextView) {
+            TextView text = (TextView) view;
+            float scale = text.getResources().getDisplayMetrics().scaledDensity;
+            if (text.getTextSize() / scale > 80) text.setTextSize(64);
+            float dp = text.getResources().getDisplayMetrics().density;
+            text.setTextColor(0xE6FFFFFF);
+            text.setShadowLayer(6 * dp, 0, dp, 0xCC000000);
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) styleGalleryClock(group.getChildAt(i));
         }
     }
 

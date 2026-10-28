@@ -130,6 +130,45 @@ public class WallpaperRotationTest {
         assertTrue(WallpaperRotation.due(20 * minute, 10 * minute, 5 * minute));   // clock went back
     }
 
+    @Test
+    public void galleryHandoffAtNineMinutesKeepsTheTenMinuteDeadline() {
+        long started = 1_000_000L, minute = 60_000L;
+        assertFalse(WallpaperRotation.due(started, started + 9 * minute, 10 * minute));
+        assertEquals(minute, WallpaperRotation.checkDelay(started, started + 9 * minute, 10 * minute));
+        assertEquals(123, WallpaperRotation.checkDelay(started, started + 10 * minute - 123, 10 * minute));
+        assertTrue(WallpaperRotation.due(started, started + 10 * minute, 10 * minute));
+        long restored = WallpaperRotation.changedAt("045.jpg", "045.jpg", started, started + 9 * minute);
+        assertEquals(started, restored);
+        assertEquals(123, WallpaperRotation.checkDelay(restored, started + 10 * minute - 123, 10 * minute));
+        long advanced = WallpaperRotation.changedAt("045.jpg", "046.jpg", restored, started + 10 * minute);
+        assertEquals(started + 10 * minute, advanced);
+        // Returning Home restores the clock's last image and its original timestamp.
+        assertEquals(advanced, WallpaperRotation.changedAt("046.jpg", "046.jpg", advanced, advanced + minute));
+    }
+
+    @Test
+    public void missingTimestampAndLongAbsenceStartOnlyOneNewInterval() {
+        assertEquals(1000, WallpaperRotation.changedAt("a", "a", 0, 1000));
+        assertEquals(10000000, WallpaperRotation.changedAt("a", "b", 1000, 10000000));
+        assertFalse(WallpaperRotation.due(10000000, 10000001, 600000));
+    }
+
+    @Test
+    public void singleImageOrClockCorrectionCannotScheduleBusyLoop() {
+        assertEquals(60_000L, WallpaperRotation.checkDelay(1, 999_999, 600_000));
+        assertEquals(60_000L, WallpaperRotation.checkDelay(999_999, 1, 600_000));
+        assertEquals(60_000L, WallpaperRotation.checkDelay(0, 1, 0));
+    }
+
+    @Test
+    public void ninetyPaintingsWrapWithoutResettingOnFind() {
+        List<File> files = new java.util.ArrayList<>();
+        for (int i = 1; i <= 90; i++) files.add(new File(String.format(java.util.Locale.ROOT, "%03d.jpg", i)));
+        assertEquals(files.get(44), WallpaperRotation.find(files, "045.jpg"));
+        assertEquals(files.get(45), WallpaperRotation.next(files, "045.jpg"));
+        assertEquals(files.get(0), WallpaperRotation.next(files, "090.jpg"));
+    }
+
     private static List<String> names(List<File> files) {
         String[] out = new String[files.size()];
         for (int i = 0; i < out.length; i++) out[i] = files.get(i).getName();
