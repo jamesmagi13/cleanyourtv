@@ -230,6 +230,8 @@ final class Config {
     final boolean clockWallpaper;
     /** Opt-in shared Home/clock gallery; no change to the legacy clock when false. */
     final boolean clockGallery;
+    /** Whether to show Spotify Now Playing on the clock screensaver (config.xml, clock_spotify). */
+    final boolean clockSpotify;
     /** How dark the clock screensaver's wallpaper is, 0 to 90 % (config.xml, clock_wallpaper_dim). */
     final int clockWallpaperDim;
     /** The clock screensaver's coloured glow; false leaves the clock on plain black, e.g. for an OLED (config.xml, clock_glow). */
@@ -257,7 +259,7 @@ final class Config {
                    boolean keyFilter, boolean dockGlass, String glowStyle, boolean wallpaperCaptions,
                    boolean handleViewInputs, boolean tileMenu, boolean dockEvenPadding, boolean cinematicDots, boolean cinematicWhiteFocus, boolean wifiStatusColor, int cinematicScrim, int cinematicArt,
                    Map<String, Set<String>> wallpaperMoods, boolean gamepadPassthrough, boolean consumeVolumeKeys, boolean wifiStatusWarnings, List<String> topBarApps, boolean showGreeting, boolean headerWhite, boolean clockWallpaper, int clockWallpaperDim, boolean clockGlow, String glassStyle, boolean singleRow, boolean dockBandAll, boolean lunarDate, int lunarUtcOffset,
-                   int idleArtModeSeconds, int idleArtModeOpacity, boolean clockGallery) {
+                   int idleArtModeSeconds, int idleArtModeOpacity, boolean clockGallery, boolean clockSpotify) {
         this.handleViewInputs = handleViewInputs;
         this.tileMenu = tileMenu;
         this.inputKeycodes = inputKeycodes;
@@ -348,6 +350,7 @@ final class Config {
         this.headerWhite = headerWhite;
         this.clockWallpaper = clockWallpaper;
         this.clockGallery = clockGallery;
+        this.clockSpotify = clockSpotify;
         this.clockWallpaperDim = clockWallpaperDim;
         this.clockGlow = clockGlow;
         this.singleRow = singleRow;
@@ -446,6 +449,7 @@ final class Config {
         int idleArtModeSeconds = res.getInteger(R.integer.idle_art_mode_seconds);
         int idleArtModeOpacity = res.getInteger(R.integer.idle_art_mode_opacity);
         boolean clockGallery = res.getBoolean(R.bool.clock_gallery);
+        boolean clockSpotify = res.getBoolean(R.bool.clock_spotify);
         boolean keyFilter = res.getBoolean(R.bool.key_filter);
         boolean gamepadPassthrough = res.getBoolean(R.bool.gamepad_passthrough);
         boolean consumeVolumeKeys = res.getBoolean(R.bool.consume_volume_keys);
@@ -543,6 +547,7 @@ final class Config {
             idleArtModeSeconds = integer(json, "idle_art_mode_seconds", idleArtModeSeconds, 0, 86400);
             idleArtModeOpacity = integer(json, "idle_art_mode_opacity", idleArtModeOpacity, 0, 100);
             clockGallery = bool(json, "clock_gallery", clockGallery);
+            clockSpotify = bool(json, "clock_spotify", clockSpotify);
             keyFilter = bool(json, "key_filter", keyFilter);
             gamepadPassthrough = bool(json, "gamepad_passthrough", gamepadPassthrough);
             consumeVolumeKeys = bool(json, "consume_volume_keys", consumeVolumeKeys);
@@ -622,7 +627,7 @@ final class Config {
                 wallpapers, rotationMinutes, wallpaperDim, dockOpacity, wallpaperOrder, applied,
                 festival, inputKeycodes, appKeys, stockHomeRedirect, json == null ? Collections.emptyList() : raceCalendar(json), cinematic, ambientGlow, appGlow, fadeRows,
                 Math.max(0, idleClockMinutes), keyFilter, dockGlass, glowStyle, wallpaperCaptions, handleViewInputs, tileMenu, dockEvenPadding, cinematicDots, cinematicWhiteFocus, wifiStatusColor, cinematicScrim, cinematicArt, wallpaperMoods, gamepadPassthrough, consumeVolumeKeys, wifiStatusWarnings, topBarApps, showGreeting, headerWhite, clockWallpaper, Math.max(0, Math.min(90, clockWallpaperDim)), clockGlow, glassStyle, singleRow && dockRow, dockBandAll, lunar, lunarOffset,
-                Math.max(0, idleArtModeSeconds), Math.max(0, Math.min(100, idleArtModeOpacity)), clockGallery);
+                Math.max(0, idleArtModeSeconds), Math.max(0, Math.min(100, idleArtModeOpacity)), clockGallery, clockSpotify);
     }
 
     /**

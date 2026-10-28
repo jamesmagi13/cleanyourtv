@@ -403,6 +403,8 @@
     <!-- Opt-in Home/clock gallery sharing one player, captions and rotation deadline.
          Uses Home wallpaper settings, not clock_wallpaper_dim or clock_glow. -->
     <bool name="clock_gallery">false</bool>
+    <!-- clock_spotify: show Spotify Now Playing on the clock screensaver (a theme can set it). Default false. -->
+    <bool name="clock_spotify">false</bool>
     <!-- How dark that wallpaper is behind the clock, 0 to 90 %. Can also be set with "clock_wallpaper_dim". -->
     <integer name="clock_wallpaper_dim">50</integer>
     <!-- The clock screensaver's slow coloured glow behind the clock. false leaves the clock and date alone on plain black

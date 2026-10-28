@@ -206,9 +206,9 @@ Fontes oficiais consultadas em 2026-10-28:
 |---|---|---|
 | R3.0 | Branch, mapa, plano, candidato 5% e reversão 10% | Preparado localmente |
 | R3.1a | Galeria offline nos dois relógios: player, estado/prazo e legendas partilhados | Implementado localmente; testes JVM/build/lint aprovados; TV pendente |
-| R3.1b | Protótipo visual Spotify no relógio, testes de estados/limites | Proposto |
-| R3.2 | Componente Spotify, PKCE, IPC protegido, testes com respostas simuladas | Planeado |
-| R3.3 | Conta real e reprodução noutro dispositivo; sem instalar na TV nesta fase | Pendente |
+| R3.1b | Protótipo visual Spotify no relógio, dados simulados, zero internet no launcher | Implementado localmente; 279 testes JVM, APK 514.957 B (<524.288 B), zero lint |
+| R3.2 | Componente Spotify bridge (companion), PKCE RFC 7636, IPC seguro por ContentProvider | Implementado localmente em companion/spotify-bridge; testes PKCE aprovados |
+| R3.3 | Conta real e reprodução noutro dispositivo; sem instalar na TV nesta fase | Planeado |
 | R3.4 | Sessão TV autorizada: identificar relógio, instalar/testar separadamente e aplicar 5% | Não autorizado agora |
 
 Antes de commit ou push: apresentar ficheiros, diff completo, resultados e riscos e obter
@@ -347,3 +347,23 @@ O patch inclui ficheiros novos e alterações documentais desde a base estável;
 artefactos de revisão ficam fora do commit. Destino proposto: branch isolada existente
 `feat/reimagui-r3-clock-spotify`, nunca a branch estável. Commit/push aguardam nova
 aprovação explícita. Spotify continua fora deste código; será a etapa seguinte.
+
+## Resultado local R3.1b e R3.2 — 2026-10-28 (Antigravity)
+
+- **Contrato e Arquitetura Formalizados**: documento [docs/SPOTIFY_CONTRACT.md](SPOTIFY_CONTRACT.md)
+  detalhando isolamento do Launcher (zero internet), modelo OAuth 2.0 PKCE (RFC 7636 sem Client Secret),
+  IPC via ContentProvider (`com.gathin.tvhome.spotify`), cache limitada da capa (640x640) e streaming
+  via `openFileDescriptor`.
+- **Launcher Clock UI (Protótipo)**:
+  - Layouts `dream_clock.xml` e `layout-iw/dream_clock.xml` atualizados com capa de 160dp x 160dp, cantos
+    arredondados (12dp), título (22sp) e artista (16sp) com sombra escura (`#CC000000`).
+  - Totalmente transparente, sem painel preto sólido: pinturas de fundo e legendas preservadas.
+  - Exclusivo da tela de relógio; zero elementos Spotify na Home principal (`MainActivity`).
+  - Chave de configuração `clock_spotify` adicionada (off por defeito, documentada em `themes/README.md`).
+  - Classe `ClockSpotify.java` com suporte a injeção de dados simulados (mock) e observação reativa de IPC.
+  - Testes do launcher: 279 testes JVM aprovados; zero erros de lint; APK release 514.957 B (< 524.288 B, margem 9.331 B).
+- **Componente Auxiliar Separado (`companion/spotify-bridge`)**:
+  - Projeto Gradle independente com permissões de rede, gerador PKCE com vetor de teste do RFC 7636
+    Appendix B validado criptograficamente, ContentProvider seguro e suporte a reprodução simulada.
+  - Testes do bridge: 5 testes unitários aprovados; build release e lint aprovados.
+  - Sem instalação na TV, sem alteração da configuração ativa, sem commit ou push.

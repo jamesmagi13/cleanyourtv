@@ -40,6 +40,7 @@ final class ClockScene {
     private final View content;
     private final View ambient;
     private final GradientDrawable glow;
+    private final ClockSpotify spotify;
     private WallpaperPlayback gallery;
     private boolean running;
     private final Runnable reveal = this::revealClock;
@@ -80,6 +81,7 @@ final class ClockScene {
                 glow.setGradientRadius((r - l) * 0.55f));
         colorIndex = random.nextInt(PALETTE.length);
         setGlow(PALETTE[colorIndex]);
+        spotify = new ClockSpotify(root);
     }
 
     void start() {
@@ -88,6 +90,7 @@ final class ClockScene {
         content.removeCallbacks(reveal);
         content.post(reveal);
         if (gallery != null) gallery.start();
+        spotify.start();
         handler.removeCallbacks(tick);
         handler.postDelayed(tick, MOVE_MS);
         if (wallpaperFile != null && !wallpaperShown) loadWallpaper();
@@ -97,6 +100,7 @@ final class ClockScene {
         running = false;
         content.removeCallbacks(reveal);
         if (gallery != null) gallery.stop();
+        spotify.stop();
         handler.removeCallbacksAndMessages(null);   // the tick and any glow steps still queued
         content.animate().cancel();
         wallpaperGeneration++;   // a decode still running must not attach its picture to a stopped scene
@@ -105,6 +109,7 @@ final class ClockScene {
     void close() {
         stop();
         if (gallery != null) gallery.close();
+        spotify.close();
     }
 
     /**
@@ -120,6 +125,7 @@ final class ClockScene {
         } catch (RuntimeException e) {
             return;
         }
+        spotify.configure(cfg);
         if (cfg.clockGallery) {
             FrameLayout parent = (FrameLayout) content.getParent();
             FrameLayout backdrop = new FrameLayout(ctx);
