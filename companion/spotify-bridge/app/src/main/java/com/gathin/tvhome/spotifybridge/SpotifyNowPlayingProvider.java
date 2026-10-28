@@ -51,7 +51,8 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
             SpotifyContract.COLUMN_DURATION_MS,
             SpotifyContract.COLUMN_PROGRESS_MS,
             SpotifyContract.COLUMN_ART_URI,
-            SpotifyContract.COLUMN_UPDATED_AT
+            SpotifyContract.COLUMN_UPDATED_AT,
+            SpotifyContract.COLUMN_SPOTIFY_URI
     };
 
     // State in memory: mockMode is FALSE by default to prevent fictitious tracks in production
@@ -60,9 +61,11 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
     private static String trackTitle = "";
     private static String artistName = "";
     private static String albumName = "";
+    private static String spotifyUri = "";
     private static long durationMs = 0L;
     private static long progressMs = 0L;
     private static long updatedAt = 0L;
+    private static boolean hasAlbumArt = false;
 
     private static int subscriberCount = 0;
 
@@ -75,20 +78,65 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         trackTitle = title != null ? title : "";
         artistName = artist != null ? artist : "";
         albumName = album != null ? album : "";
+        spotifyUri = "spotify:track:mock123";
         durationMs = 256000L;
         progressMs = 45000L;
         updatedAt = System.currentTimeMillis();
+        hasAlbumArt = true;
+    }
+
+    public static synchronized boolean setPlaybackState(boolean playing, String title, String artist, String album,
+                                                        String uri, long duration, long progress, boolean hasArt) {
+        String newTitle = title != null ? title : "";
+        String newArtist = artist != null ? artist : "";
+        String newAlbum = album != null ? album : "";
+        String newUri = uri != null ? uri : "";
+
+        boolean changed = isPlaying != playing
+                || !trackTitle.equals(newTitle)
+                || !artistName.equals(newArtist)
+                || !albumName.equals(newAlbum)
+                || !spotifyUri.equals(newUri)
+                || hasAlbumArt != hasArt;
+
+        mockMode = false;
+        isPlaying = playing;
+        trackTitle = newTitle;
+        artistName = newArtist;
+        albumName = newAlbum;
+        spotifyUri = newUri;
+        durationMs = duration;
+        progressMs = progress;
+        hasAlbumArt = hasArt;
+        updatedAt = System.currentTimeMillis();
+        return changed;
     }
 
     public static synchronized void setLiveState(boolean playing, String title, String artist, String album, long duration, long progress) {
+        setPlaybackState(playing, title, artist, album, "", duration, progress, playing);
+    }
+
+    public static synchronized void clearPlaybackState(Context context) {
         mockMode = false;
-        isPlaying = playing;
-        trackTitle = title != null ? title : "";
-        artistName = artist != null ? artist : "";
-        albumName = album != null ? album : "";
-        durationMs = duration;
-        progressMs = progress;
+        isPlaying = false;
+        trackTitle = "";
+        artistName = "";
+        albumName = "";
+        spotifyUri = "";
+        durationMs = 0L;
+        progressMs = 0L;
+        hasAlbumArt = false;
         updatedAt = System.currentTimeMillis();
+        if (context != null) {
+            File artFile = new File(context.getCacheDir(), "now_playing_art.png");
+            if (artFile.exists()) {
+                artFile.delete();
+            }
+        }
+    }
+
+    public static synchronized int getSubscriberCount() {
+        return subscriberCount;
     }
 
     public static synchronized boolean isMockMode() {
@@ -136,7 +184,7 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
 
         MatrixCursor cursor = new MatrixCursor(COLUMNS);
         synchronized (SpotifyNowPlayingProvider.class) {
-            String artUri = isPlaying ? SpotifyContract.ART_URI.toString() : "";
+            String artUri = (isPlaying && hasAlbumArt) ? SpotifyContract.ART_URI.toString() : "";
             cursor.addRow(new Object[]{
                     isPlaying ? 1 : 0,
                     trackTitle,
@@ -145,7 +193,8 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
                     durationMs,
                     progressMs,
                     artUri,
-                    updatedAt
+                    updatedAt,
+                    spotifyUri
             });
         }
         return cursor;
@@ -226,11 +275,29 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         if (SpotifyContract.METHOD_SUBSCRIBE.equals(method)) {
             synchronized (SpotifyNowPlayingProvider.class) {
                 subscriberCount++;
+                if (subscriberCount == 1) {
+                    Context ctx = getContext();
+                    if (ctx != null) {
+                        try {
+                            SpotifyPoller.getInstance(ctx).start();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
             }
             return new Bundle();
         } else if (SpotifyContract.METHOD_UNSUBSCRIBE.equals(method)) {
             synchronized (SpotifyNowPlayingProvider.class) {
                 subscriberCount = Math.max(0, subscriberCount - 1);
+                if (subscriberCount == 0) {
+                    Context ctx = getContext();
+                    if (ctx != null) {
+                        try {
+                            SpotifyPoller.getInstance(ctx).stop();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
             }
             return new Bundle();
         }

@@ -23,6 +23,7 @@ public class SpotifyContractTest {
         assertEquals("duration_ms", SpotifyContract.COLUMN_DURATION_MS);
         assertEquals("progress_ms", SpotifyContract.COLUMN_PROGRESS_MS);
         assertEquals("art_uri", SpotifyContract.COLUMN_ART_URI);
+        assertEquals("spotify_uri", SpotifyContract.COLUMN_SPOTIFY_URI);
         assertEquals("updated_at", SpotifyContract.COLUMN_UPDATED_AT);
     }
 }

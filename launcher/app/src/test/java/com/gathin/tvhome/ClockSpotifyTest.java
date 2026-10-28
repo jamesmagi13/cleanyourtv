@@ -14,7 +14,12 @@ public class ClockSpotifyTest {
         assertEquals("David Bowie", track.artist);
         assertEquals("Ziggy Stardust", track.album);
         assertEquals("content://art/1", track.artUri);
+        assertEquals("", track.spotifyUri);
         assertEquals(123456L, track.updatedAt);
+
+        ClockSpotify.TrackInfo trackWithUri = new ClockSpotify.TrackInfo(
+                true, "Starman", "David Bowie", "Ziggy Stardust", "content://art/1", "spotify:track:123", 123456L);
+        assertEquals("spotify:track:123", trackWithUri.spotifyUri);
 
         ClockSpotify.TrackInfo empty = new ClockSpotify.TrackInfo(false, null, null, null, null, 0L);
         assertFalse(empty.isPlaying);

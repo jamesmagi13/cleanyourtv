@@ -81,39 +81,52 @@ public class SpotifyApiClient {
         public final long progressMs;
         public final boolean tokenExpired;
         public final long retryAfterSeconds;
+        public final String spotifyUri;
+        public final boolean quotaExceeded;
 
         private PlaybackResponse(int statusCode, boolean isPlaying, String title, String artist, String album,
-                                 String artUrl, long duration, long progress, boolean tokenExpired, long retryAfter) {
+                                 String artUrl, String spotifyUri, long duration, long progress,
+                                 boolean tokenExpired, long retryAfter, boolean quotaExceeded) {
             this.statusCode = statusCode;
             this.isPlaying = isPlaying;
             this.trackTitle = title != null ? title : "";
             this.artistName = artist != null ? artist : "";
             this.albumName = album != null ? album : "";
             this.albumArtUrl = artUrl != null ? artUrl : "";
+            this.spotifyUri = spotifyUri != null ? spotifyUri : "";
             this.durationMs = duration;
             this.progressMs = progress;
             this.tokenExpired = tokenExpired;
             this.retryAfterSeconds = retryAfter;
+            this.quotaExceeded = quotaExceeded;
         }
 
-        public static PlaybackResponse active(String title, String artist, String album, String artUrl, long duration, long progress) {
-            return new PlaybackResponse(200, true, title, artist, album, artUrl, duration, progress, false, 0);
+        public static PlaybackResponse active(String title, String artist, String album, String artUrl, String spotifyUri, long duration, long progress) {
+            return new PlaybackResponse(200, true, title, artist, album, artUrl, spotifyUri, duration, progress, false, 0, false);
         }
 
-        public static PlaybackResponse paused(String title, String artist, String album, String artUrl, long duration, long progress) {
-            return new PlaybackResponse(200, false, title, artist, album, artUrl, duration, progress, false, 0);
+        public static PlaybackResponse paused(String title, String artist, String album, String artUrl, String spotifyUri, long duration, long progress) {
+            return new PlaybackResponse(200, false, title, artist, album, artUrl, spotifyUri, duration, progress, false, 0, false);
         }
 
         public static PlaybackResponse empty(int code) {
-            return new PlaybackResponse(code, false, "", "", "", "", 0, 0, false, 0);
+            return new PlaybackResponse(code, false, "", "", "", "", "", 0, 0, false, 0, false);
         }
 
         public static PlaybackResponse expired() {
-            return new PlaybackResponse(401, false, "", "", "", "", 0, 0, true, 0);
+            return new PlaybackResponse(401, false, "", "", "", "", "", 0, 0, true, 0, false);
+        }
+
+        public static PlaybackResponse rateLimited(long retryAfter, boolean quotaExceeded) {
+            return new PlaybackResponse(429, false, "", "", "", "", "", 0, 0, false, retryAfter, quotaExceeded);
         }
 
         public static PlaybackResponse rateLimited(long retryAfter) {
-            return new PlaybackResponse(429, false, "", "", "", "", 0, 0, false, retryAfter);
+            return rateLimited(retryAfter, false);
+        }
+
+        public static PlaybackResponse quotaExceeded() {
+            return new PlaybackResponse(429, false, "", "", "", "", "", 0, 0, false, 3600L, true);
         }
     }
 
@@ -207,11 +220,20 @@ public class SpotifyApiClient {
             }
             if (code == 429) {
                 String retryStr = conn.getHeaderField("Retry-After");
-                long retryAfter = 10L;
+                long retryAfter = 30L;
                 if (retryStr != null) {
                     try { retryAfter = Long.parseLong(retryStr.trim()); } catch (Exception ignored) {}
                 }
-                return PlaybackResponse.rateLimited(retryAfter);
+                String errBody = readStream(conn.getErrorStream());
+                boolean quotaExceeded = isQuotaExceededError(errBody);
+                return PlaybackResponse.rateLimited(retryAfter, quotaExceeded);
+            }
+            if (code == 403) {
+                String errBody = readStream(conn.getErrorStream());
+                if (isQuotaExceededError(errBody)) {
+                    return PlaybackResponse.quotaExceeded();
+                }
+                return PlaybackResponse.empty(403);
             }
             if (code != 200) {
                 return PlaybackResponse.empty(code);
@@ -258,10 +280,18 @@ public class SpotifyApiClient {
                 }
             }
 
+            String spotifyUri = item.optString("uri", "");
+            if (spotifyUri.isEmpty()) {
+                JSONObject ext = item.optJSONObject("external_urls");
+                if (ext != null) {
+                    spotifyUri = ext.optString("spotify", "");
+                }
+            }
+
             if (isPlaying) {
-                return PlaybackResponse.active(title, artistName, albumName, albumArtUrl, durationMs, progressMs);
+                return PlaybackResponse.active(title, artistName, albumName, albumArtUrl, spotifyUri, durationMs, progressMs);
             } else {
-                return PlaybackResponse.paused(title, artistName, albumName, albumArtUrl, durationMs, progressMs);
+                return PlaybackResponse.paused(title, artistName, albumName, albumArtUrl, spotifyUri, durationMs, progressMs);
             }
         } catch (Exception e) {
             return PlaybackResponse.empty(-1);
@@ -292,18 +322,57 @@ public class SpotifyApiClient {
     }
 
     /**
+     * Inspects Spotify error responses (e.g. July 2026 Developer Policy rate limiting / quota).
+     */
+    static boolean isQuotaExceededError(String responseBody) {
+        if (responseBody == null || responseBody.isEmpty()) return false;
+        try {
+            JSONObject json = new JSONObject(responseBody);
+            JSONObject error = json.optJSONObject("error");
+            if (error != null) {
+                String reason = error.optString("reason", "");
+                if ("QUOTA_EXCEEDED".equalsIgnoreCase(reason)) return true;
+                String message = error.optString("message", "");
+                if (message.toUpperCase().contains("QUOTA_EXCEEDED") || message.toUpperCase().contains("QUOTA EXCEEDED")) {
+                    return true;
+                }
+            }
+        } catch (Exception ignored) {
+            if (responseBody.toUpperCase().contains("QUOTA_EXCEEDED")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Downloads album artwork into target file safely.
+     * Enforces HTTPS-only URLs, canonical path checks, and atomic replacement via .tmp file.
      */
     public boolean downloadAlbumArt(String imageUrl, File targetFile) {
         if (imageUrl == null || imageUrl.isEmpty() || targetFile == null) return false;
+        if (!imageUrl.startsWith("https://")) return false; // Strictly HTTPS
+
+        File parentDir = targetFile.getParentFile();
+        if (parentDir == null) return false;
+
+        // Path traversal prevention
+        try {
+            if (!targetFile.getCanonicalPath().startsWith(parentDir.getCanonicalPath())) {
+                return false;
+            }
+        } catch (IOException e) {
+            return false;
+        }
+
         HttpURLConnection conn = null;
+        File tempFile = new File(parentDir, targetFile.getName() + ".tmp");
         try {
             conn = factory.openConnection(imageUrl);
             conn.setConnectTimeout(8000);
             conn.setReadTimeout(8000);
             if (conn.getResponseCode() != 200) return false;
 
-            File tempFile = new File(targetFile.getParentFile(), targetFile.getName() + ".tmp");
             try (InputStream in = conn.getInputStream();
                  FileOutputStream out = new FileOutputStream(tempFile)) {
                 byte[] buffer = new byte[8192];
@@ -312,7 +381,6 @@ public class SpotifyApiClient {
                 while ((read = in.read(buffer)) != -1) {
                     total += read;
                     if (total > 2 * 1024 * 1024) { // Max 2 MB image limit
-                        tempFile.delete();
                         return false;
                     }
                     out.write(buffer, 0, read);
@@ -327,6 +395,9 @@ public class SpotifyApiClient {
         } catch (Exception e) {
             return false;
         } finally {
+            if (tempFile.exists()) {
+                tempFile.delete();
+            }
             if (conn != null) conn.disconnect();
         }
     }

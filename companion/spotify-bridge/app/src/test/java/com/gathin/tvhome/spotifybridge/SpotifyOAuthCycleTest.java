@@ -111,6 +111,7 @@ public class SpotifyOAuthCycleTest {
                 + "\"progress_ms\": 42000,"
                 + "\"item\": {"
                 + "  \"name\": \"Life on Mars?\","
+                + "  \"uri\": \"spotify:track:mars123\","
                 + "  \"duration_ms\": 234000,"
                 + "  \"artists\": [{\"name\": \"David Bowie\"}],"
                 + "  \"album\": {"
@@ -134,6 +135,7 @@ public class SpotifyOAuthCycleTest {
         assertEquals("David Bowie", playResp.artistName);
         assertEquals("Hunky Dory", playResp.albumName);
         assertEquals("https://img/cover640.jpg", playResp.albumArtUrl);
+        assertEquals("spotify:track:mars123", playResp.spotifyUri);
         assertEquals(234000L, playResp.durationMs);
         assertEquals(42000L, playResp.progressMs);
         assertFalse(playResp.tokenExpired);
@@ -260,6 +262,24 @@ public class SpotifyOAuthCycleTest {
 
         assertEquals(429, resp.statusCode);
         assertEquals(25L, resp.retryAfterSeconds);
+        assertFalse(resp.quotaExceeded);
         assertFalse(resp.isPlaying);
+    }
+
+    @Test
+    public void testPlayback429QuotaExceededDetected() throws Exception {
+        String quotaJson = "{\"error\": {\"status\": 429, \"message\": \"API rate limit exceeded\", \"reason\": \"QUOTA_EXCEEDED\"}}";
+        SpotifyApiClient.HttpConnectionFactory factory = url -> {
+            MockHttpURLConnection conn = new MockHttpURLConnection(new URL(url), 429, quotaJson);
+            conn.setHeader("Retry-After", "120");
+            return conn;
+        };
+
+        SpotifyApiClient client = new SpotifyApiClient(factory);
+        SpotifyApiClient.PlaybackResponse resp = client.fetchCurrentlyPlaying("token");
+
+        assertEquals(429, resp.statusCode);
+        assertTrue(resp.quotaExceeded);
+        assertEquals(120L, resp.retryAfterSeconds);
     }
 }

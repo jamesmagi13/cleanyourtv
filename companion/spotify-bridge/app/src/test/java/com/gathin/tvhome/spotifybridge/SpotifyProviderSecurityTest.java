@@ -76,6 +76,7 @@ public class SpotifyProviderSecurityTest {
                 SpotifyContract.COLUMN_DURATION_MS,
                 SpotifyContract.COLUMN_PROGRESS_MS,
                 SpotifyContract.COLUMN_ART_URI,
+                SpotifyContract.COLUMN_SPOTIFY_URI,
                 SpotifyContract.COLUMN_UPDATED_AT
         };
 

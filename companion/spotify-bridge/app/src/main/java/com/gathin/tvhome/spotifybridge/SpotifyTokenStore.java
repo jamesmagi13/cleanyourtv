@@ -7,9 +7,10 @@ import android.content.SharedPreferences;
  * Local secure storage for Spotify OAuth tokens encrypted via AndroidKeyStore (AES-256-GCM).
  * Never stores plaintext tokens, never logs tokens, and never exports tokens to external apps or Git.
  */
-public final class SpotifyTokenStore {
+public class SpotifyTokenStore implements TokenStorage {
 
     private static final String PREF_NAME = "spotify_tokens";
+    private static final String KEY_CLIENT_ID = "client_id";
     private static final String KEY_ENC_ACCESS_TOKEN = "enc_access_token";
     private static final String KEY_ENC_REFRESH_TOKEN = "enc_refresh_token";
     private static final String KEY_EXPIRES_AT = "expires_at";
@@ -20,18 +21,29 @@ public final class SpotifyTokenStore {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
     }
 
-    public synchronized void saveTokens(String accessToken, String refreshToken, long expiresInSeconds) {
+    public synchronized void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
         long expiresAt = System.currentTimeMillis() + (expiresInSeconds * 1000L);
         String encAccess = accessToken != null ? SpotifyKeyStore.encrypt(accessToken) : "";
         SharedPreferences.Editor editor = prefs.edit()
                 .putString(KEY_ENC_ACCESS_TOKEN, encAccess)
                 .putLong(KEY_EXPIRES_AT, expiresAt);
 
+        if (clientId != null && !clientId.isEmpty()) {
+            editor.putString(KEY_CLIENT_ID, clientId);
+        }
         if (refreshToken != null && !refreshToken.isEmpty()) {
             String encRefresh = SpotifyKeyStore.encrypt(refreshToken);
             editor.putString(KEY_ENC_REFRESH_TOKEN, encRefresh);
         }
         editor.apply();
+    }
+
+    public synchronized void saveTokens(String accessToken, String refreshToken, long expiresInSeconds) {
+        saveTokens(null, accessToken, refreshToken, expiresInSeconds);
+    }
+
+    public synchronized String getClientId() {
+        return prefs.getString(KEY_CLIENT_ID, null);
     }
 
     public synchronized String getAccessToken() {

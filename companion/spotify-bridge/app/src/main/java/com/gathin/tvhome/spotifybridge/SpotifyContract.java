@@ -23,6 +23,7 @@ public final class SpotifyContract {
     public static final String COLUMN_DURATION_MS = "duration_ms";
     public static final String COLUMN_PROGRESS_MS = "progress_ms";
     public static final String COLUMN_ART_URI = "art_uri";
+    public static final String COLUMN_SPOTIFY_URI = "spotify_uri";
     public static final String COLUMN_UPDATED_AT = "updated_at";
 
     public static final String METHOD_SUBSCRIBE = "subscribe";

@@ -36,15 +36,21 @@ final class ClockSpotify {
         final String artist;
         final String album;
         final String artUri;
+        final String spotifyUri;
         final long updatedAt;
 
-        TrackInfo(boolean isPlaying, String title, String artist, String album, String artUri, long updatedAt) {
+        TrackInfo(boolean isPlaying, String title, String artist, String album, String artUri, String spotifyUri, long updatedAt) {
             this.isPlaying = isPlaying;
             this.title = title != null ? title : "";
             this.artist = artist != null ? artist : "";
             this.album = album != null ? album : "";
             this.artUri = artUri != null ? artUri : "";
+            this.spotifyUri = spotifyUri != null ? spotifyUri : "";
             this.updatedAt = updatedAt;
+        }
+
+        TrackInfo(boolean isPlaying, String title, String artist, String album, String artUri, long updatedAt) {
+            this(isPlaying, title, artist, album, artUri, "", updatedAt);
         }
     }
 
@@ -63,9 +69,11 @@ final class ClockSpotify {
     private final ImageView artView;
     private final TextView trackView;
     private final TextView artistView;
+    private final TextView attributionView;
 
     private boolean enabled;
     private boolean active;
+    private boolean subscribed;
     private int generation;
     private Bitmap currentArt;
     private TrackInfo currentInfo;
@@ -77,6 +85,7 @@ final class ClockSpotify {
         artView = clockRoot.findViewById(R.id.dreamSpotifyArt);
         trackView = clockRoot.findViewById(R.id.dreamSpotifyTrack);
         artistView = clockRoot.findViewById(R.id.dreamSpotifyArtist);
+        attributionView = clockRoot.findViewById(R.id.dreamSpotifyAttribution);
 
         if (artView != null) {
             final float density = artView.getResources().getDisplayMetrics().density;
@@ -116,7 +125,10 @@ final class ClockSpotify {
             } catch (Exception ignored) {
             }
         }
-        sendSubscription(ctx, "subscribe");
+        if (!subscribed) {
+            sendSubscription(ctx, "subscribe");
+            subscribed = true;
+        }
         queryAsync();
     }
 
@@ -132,7 +144,10 @@ final class ClockSpotify {
                 }
                 observer = null;
             }
-            sendSubscription(ctx, "unsubscribe");
+            if (subscribed) {
+                sendSubscription(ctx, "unsubscribe");
+                subscribed = false;
+            }
             root.animate().cancel();
         }
     }
@@ -142,6 +157,12 @@ final class ClockSpotify {
         executor.shutdownNow();
         if (artView != null) {
             artView.setImageDrawable(null);
+        }
+        if (attributionView != null) {
+            attributionView.setVisibility(View.GONE);
+        }
+        if (root != null) {
+            root.setOnClickListener(null);
         }
         currentArt = null;
         currentInfo = null;
@@ -178,6 +199,21 @@ final class ClockSpotify {
                 currentArt = art;
                 artView.setImageBitmap(art);
             }
+            if (attributionView != null) {
+                attributionView.setVisibility(View.VISIBLE);
+            }
+            if (info.spotifyUri != null && !info.spotifyUri.isEmpty()) {
+                root.setOnClickListener(v -> {
+                    try {
+                        android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, Uri.parse(info.spotifyUri));
+                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+                        v.getContext().startActivity(intent);
+                    } catch (Exception ignored) {
+                    }
+                });
+            } else {
+                root.setOnClickListener(null);
+            }
             if (root.getVisibility() != View.VISIBLE) {
                 root.setAlpha(0f);
                 root.setVisibility(View.VISIBLE);
@@ -189,10 +225,14 @@ final class ClockSpotify {
                     if (!active || currentInfo == null || !currentInfo.isPlaying) {
                         root.setVisibility(View.GONE);
                         if (artView != null) artView.setImageDrawable(null);
+                        if (attributionView != null) attributionView.setVisibility(View.GONE);
+                        root.setOnClickListener(null);
                     }
                 }).start();
             } else {
                 root.setVisibility(View.GONE);
+                if (attributionView != null) attributionView.setVisibility(View.GONE);
+                root.setOnClickListener(null);
             }
         }
     }
@@ -206,6 +246,7 @@ final class ClockSpotify {
             int albumIdx = c.getColumnIndex("album_name");
             int artIdx = c.getColumnIndex("art_uri");
             int updatedIdx = c.getColumnIndex("updated_at");
+            int uriIdx = c.getColumnIndex("spotify_uri");
 
             boolean playing = playingIdx >= 0 && c.getInt(playingIdx) == 1;
             String title = titleIdx >= 0 ? c.getString(titleIdx) : "";
@@ -213,8 +254,9 @@ final class ClockSpotify {
             String album = albumIdx >= 0 ? c.getString(albumIdx) : "";
             String art = artIdx >= 0 ? c.getString(artIdx) : "";
             long updated = updatedIdx >= 0 ? c.getLong(updatedIdx) : 0L;
+            String spotifyUri = uriIdx >= 0 ? c.getString(uriIdx) : "";
 
-            return new TrackInfo(playing, title, artist, album, art, updated);
+            return new TrackInfo(playing, title, artist, album, art, spotifyUri, updated);
         } catch (Exception ignored) {
             return null;
         }

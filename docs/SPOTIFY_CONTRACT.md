@@ -118,6 +118,7 @@ Cursor de linha única com dados estritamente de apresentação. **Zero tokens o
 | `duration_ms` | `INTEGER` | Duração total da música em ms |
 | `progress_ms` | `INTEGER` | Posição atual da reprodução em ms |
 | `art_uri` | `TEXT` | URI para leitura da capa (`content://com.gathin.tvhome.spotify/art`) |
+| `spotify_uri` | `TEXT` | URI da faixa ou álbum no Spotify (`spotify:track:<id>` ou web URL) |
 | `updated_at` | `INTEGER` | Timestamp local (`System.currentTimeMillis()`) da última atualização |
 
 ### 4.4 Acesso Seguro às Capas (`openFile`)

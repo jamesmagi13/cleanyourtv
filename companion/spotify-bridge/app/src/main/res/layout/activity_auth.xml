@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:background="#121212"
+    android:padding="48dp">
+
+    <TextView
+        android:id="@+id/authTitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/auth_title"
+        android:textColor="#1DB954"
+        android:textSize="28sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/authDescription"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/auth_description"
+        android:textColor="#B3FFFFFF"
+        android:textSize="15sp"
+        android:gravity="center"
+        android:maxWidth="640dp" />
+
+    <LinearLayout
+        android:layout_width="520dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/auth_label_client_id"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:layout_marginStart="4dp"
+            android:layout_marginBottom="6dp" />
+
+        <EditText
+            android:id="@+id/inputClientId"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:hint="@string/auth_hint_client_id"
+            android:textColorHint="#666666"
+            android:textColor="#FFFFFF"
+            android:textSize="15sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:background="@drawable/bg_input_field"
+            android:inputType="textNoSuggestions"
+            android:singleLine="true"
+            android:imeOptions="actionDone"
+            android:focusable="true" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/authStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:text="@string/auth_status_not_connected"
+        android:textColor="#FFFFFF"
+        android:textSize="16sp"
+        android:textStyle="italic" />
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnConnect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/auth_btn_connect"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:focusable="true" />
+
+        <Button
+            android:id="@+id/btnDisconnect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="24dp"
+            android:text="@string/auth_btn_disconnect"
+            android:paddingStart="24dp"
+            android:paddingEnd="24dp"
+            android:focusable="true" />
+    </LinearLayout>
+</LinearLayout>

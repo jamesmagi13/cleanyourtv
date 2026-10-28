@@ -1,6 +1,7 @@
 package com.gathin.tvhome.spotifybridge;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -27,8 +28,7 @@ public final class SpotifyLoopbackServer {
     public static final String DEFAULT_REDIRECT_URI = "http://" + LOOPBACK_HOST + ":" + LOOPBACK_PORT + CALLBACK_PATH;
 
     public interface CallbackListener {
-        void onSuccess(String code, String state);
-        void onError(String error, String state);
+        boolean onCallback(String code, String state, String error);
     }
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor(r -> new Thread(r, "spotify-loopback"));
@@ -67,7 +67,7 @@ public final class SpotifyLoopbackServer {
                     client = serverSocket.accept();
                 } catch (SocketTimeoutException e) {
                     if (running && listener != null) {
-                        listener.onError("timeout", null);
+                        listener.onCallback(null, null, "timeout");
                     }
                     break;
                 }
@@ -82,7 +82,7 @@ public final class SpotifyLoopbackServer {
             }
         } catch (Exception e) {
             if (running && listener != null) {
-                listener.onError("server_error: " + e.getMessage(), null);
+                listener.onCallback(null, null, "server_error: " + e.getMessage());
             }
         } finally {
             stop();
@@ -90,11 +90,27 @@ public final class SpotifyLoopbackServer {
     }
 
     private void handleClient(Socket client, CallbackListener listener) {
+        try {
+            client.setSoTimeout(3000); // 3 seconds timeout on client socket read
+        } catch (Exception ignored) {
+        }
+
         try (BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
              OutputStream out = client.getOutputStream()) {
 
-            String requestLine = in.readLine();
+            String requestLine = readLineWithLimit(in, 2048);
             if (requestLine == null) return;
+
+            // Consume headers up to 8192 chars
+            String header;
+            int totalHeaderChars = 0;
+            while ((header = readLineWithLimit(in, 1024)) != null && !header.isEmpty()) {
+                totalHeaderChars += header.length();
+                if (totalHeaderChars > 8192) {
+                    sendBadRequest(out);
+                    return;
+                }
+            }
 
             // Format: GET /callback?code=...&state=... HTTP/1.1
             String[] parts = requestLine.split(" ");
@@ -110,15 +126,17 @@ public final class SpotifyLoopbackServer {
                     String error = params.get("error");
                     String state = params.get("state");
 
-                    sendResponse(out, error == null);
-
+                    boolean success = false;
                     if (listener != null) {
-                        if (code != null) {
-                            listener.onSuccess(code, state);
-                        } else {
-                            listener.onError(error != null ? error : "missing_code", state);
+                        try {
+                            success = listener.onCallback(code, state, error);
+                        } catch (Exception e) {
+                            success = false;
                         }
                     }
+
+                    // Only send response AFTER callback authentication has completed
+                    sendResponse(out, success);
                     return;
                 }
             }
@@ -131,6 +149,29 @@ public final class SpotifyLoopbackServer {
             } catch (Exception ignored) {
             }
         }
+    }
+
+    private static String readLineWithLimit(BufferedReader in, int maxLen) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int c;
+        while ((c = in.read()) != -1) {
+            if (c == '\r') continue;
+            if (c == '\n') break;
+            sb.append((char) c);
+            if (sb.length() > maxLen) {
+                throw new IOException("Request line exceeded max length of " + maxLen);
+            }
+        }
+        if (sb.length() == 0 && c == -1) {
+            return null;
+        }
+        return sb.toString();
+    }
+
+    private static void sendBadRequest(OutputStream out) throws Exception {
+        String msg = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+        out.write(msg.getBytes(StandardCharsets.US_ASCII));
+        out.flush();
     }
 
     static Map<String, String> parseQuery(String query) {

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Spotify Bridge</string>
+    <string name="auth_title">CleanYourTV — Spotify Bridge</string>
+    <string name="auth_description">Conecte a sua conta Spotify para exibir a música em reprodução exclusivamente na tela de descanso (screensaver).</string>
+    <string name="auth_status_not_connected">Status: Não conectado</string>
+    <string name="auth_status_connected">Status: Conectado com sucesso</string>
+    <string name="auth_status_waiting">Status: Aguardando autorização no navegador...</string>
+    <string name="auth_hint_client_id">Cole ou digite o Spotify Client ID</string>
+    <string name="auth_label_client_id">Spotify Client ID</string>
+    <string name="auth_error_no_client_id">Erro: Forneça o Client ID para conectar</string>
+    <string name="auth_btn_connect">Conectar ao Spotify</string>
+    <string name="auth_btn_disconnect">Desconectar</string>
+    <string name="spotify_client_id" translatable="false">default</string>
+</resources>
