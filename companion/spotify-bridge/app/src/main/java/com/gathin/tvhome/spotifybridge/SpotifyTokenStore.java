@@ -3,9 +3,13 @@ package com.gathin.tvhome.spotifybridge;
 import android.content.Context;
 import android.content.SharedPreferences;
 
+import java.util.concurrent.atomic.AtomicLong;
+
 /**
  * Local secure storage for Spotify OAuth tokens encrypted via AndroidKeyStore (AES-256-GCM).
  * Never stores plaintext tokens, never logs tokens, and never exports tokens to external apps or Git.
+ * Shared in-process session version coordinator prevents late refresh or OAuth callbacks
+ * from reviving invalidated sessions across different store instances in the same process.
  */
 public class SpotifyTokenStore implements TokenStorage {
 
@@ -15,26 +19,58 @@ public class SpotifyTokenStore implements TokenStorage {
     private static final String KEY_ENC_REFRESH_TOKEN = "enc_refresh_token";
     private static final String KEY_EXPIRES_AT = "expires_at";
 
+    private static final Object PROCESS_LOCK = new Object();
+    private static final AtomicLong GLOBAL_SESSION_VERSION = new AtomicLong(1L);
+
     private final SharedPreferences prefs;
-    private long sessionVersion = 0L;
 
     public SpotifyTokenStore(Context context) {
-        this.prefs = context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE);
+        this(context != null && context.getApplicationContext() != null
+                ? context.getApplicationContext().getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+                : (context != null ? context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE) : null));
     }
 
-    public synchronized long getSessionVersion() {
-        return sessionVersion;
+    public SpotifyTokenStore(SharedPreferences prefs) {
+        this.prefs = prefs;
     }
 
-    public synchronized boolean saveTokensIfVersion(long expectedVersion, String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
-        if (this.sessionVersion != expectedVersion) {
-            return false;
+    public static void resetSessionVersionForTesting() {
+        synchronized (PROCESS_LOCK) {
+            GLOBAL_SESSION_VERSION.set(1L);
         }
-        saveTokens(clientId, accessToken, refreshToken, expiresInSeconds);
-        return true;
     }
 
-    public synchronized void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+    @Override
+    public long getSessionVersion() {
+        synchronized (PROCESS_LOCK) {
+            return GLOBAL_SESSION_VERSION.get();
+        }
+    }
+
+    @Override
+    public boolean saveTokensIfVersion(long expectedVersion, String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+        synchronized (PROCESS_LOCK) {
+            if (GLOBAL_SESSION_VERSION.get() != expectedVersion) {
+                return false;
+            }
+            saveTokensInternal(clientId, accessToken, refreshToken, expiresInSeconds);
+            return true;
+        }
+    }
+
+    @Override
+    public void saveTokens(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+        synchronized (PROCESS_LOCK) {
+            saveTokensInternal(clientId, accessToken, refreshToken, expiresInSeconds);
+        }
+    }
+
+    public void saveTokens(String accessToken, String refreshToken, long expiresInSeconds) {
+        saveTokens(null, accessToken, refreshToken, expiresInSeconds);
+    }
+
+    private void saveTokensInternal(String clientId, String accessToken, String refreshToken, long expiresInSeconds) {
+        if (prefs == null) return;
         long expiresAt = System.currentTimeMillis() + (expiresInSeconds * 1000L);
         String encAccess = accessToken != null ? SpotifyKeyStore.encrypt(accessToken) : "";
         SharedPreferences.Editor editor = prefs.edit()
@@ -51,37 +87,54 @@ public class SpotifyTokenStore implements TokenStorage {
         editor.apply();
     }
 
-    public synchronized void saveTokens(String accessToken, String refreshToken, long expiresInSeconds) {
-        saveTokens(null, accessToken, refreshToken, expiresInSeconds);
+    @Override
+    public String getClientId() {
+        synchronized (PROCESS_LOCK) {
+            return prefs != null ? prefs.getString(KEY_CLIENT_ID, null) : null;
+        }
     }
 
-    public synchronized String getClientId() {
-        return prefs.getString(KEY_CLIENT_ID, null);
+    @Override
+    public String getAccessToken() {
+        synchronized (PROCESS_LOCK) {
+            String encrypted = prefs != null ? prefs.getString(KEY_ENC_ACCESS_TOKEN, null) : null;
+            return encrypted != null ? SpotifyKeyStore.decrypt(encrypted) : null;
+        }
     }
 
-    public synchronized String getAccessToken() {
-        String encrypted = prefs.getString(KEY_ENC_ACCESS_TOKEN, null);
-        return encrypted != null ? SpotifyKeyStore.decrypt(encrypted) : null;
+    @Override
+    public String getRefreshToken() {
+        synchronized (PROCESS_LOCK) {
+            String encrypted = prefs != null ? prefs.getString(KEY_ENC_REFRESH_TOKEN, null) : null;
+            return encrypted != null ? SpotifyKeyStore.decrypt(encrypted) : null;
+        }
     }
 
-    public synchronized String getRefreshToken() {
-        String encrypted = prefs.getString(KEY_ENC_REFRESH_TOKEN, null);
-        return encrypted != null ? SpotifyKeyStore.decrypt(encrypted) : null;
+    @Override
+    public boolean isExpired() {
+        synchronized (PROCESS_LOCK) {
+            if (prefs == null) return true;
+            long expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0L);
+            // Margin of 60 seconds before actual expiration to refresh ahead of time
+            return System.currentTimeMillis() >= (expiresAt - 60_000L);
+        }
     }
 
-    public synchronized boolean isExpired() {
-        long expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0L);
-        // Margin of 60 seconds before actual expiration to refresh ahead of time
-        return System.currentTimeMillis() >= (expiresAt - 60_000L);
+    @Override
+    public boolean hasRefreshToken() {
+        synchronized (PROCESS_LOCK) {
+            String token = getRefreshToken();
+            return token != null && !token.isEmpty();
+        }
     }
 
-    public synchronized boolean hasRefreshToken() {
-        String token = getRefreshToken();
-        return token != null && !token.isEmpty();
-    }
-
-    public synchronized void clear() {
-        sessionVersion++;
-        prefs.edit().clear().apply();
+    @Override
+    public void clear() {
+        synchronized (PROCESS_LOCK) {
+            GLOBAL_SESSION_VERSION.incrementAndGet();
+            if (prefs != null) {
+                prefs.edit().clear().apply();
+            }
+        }
     }
 }

@@ -71,7 +71,8 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
     private static long updatedAt = 0L;
     private static boolean hasAlbumArt = false;
 
-    private static int subscriberCount = 0;
+    private static final Object SUBSCRIPTION_LOCK = new Object();
+    private static volatile int subscriberCount = 0;
     private static final Map<IBinder, IBinder.DeathRecipient> activeSubscribers = new HashMap<>();
     private static SpotifyPoller pollerInstance = null;
 
@@ -79,14 +80,19 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         pollerInstance = poller;
     }
 
-    public static synchronized void resetSubscribersForTesting() {
-        for (Map.Entry<IBinder, IBinder.DeathRecipient> entry : activeSubscribers.entrySet()) {
-            try {
-                entry.getKey().unlinkToDeath(entry.getValue(), 0);
-            } catch (Exception ignored) {}
+    public static void resetSubscribersForTesting() {
+        synchronized (SUBSCRIPTION_LOCK) {
+            for (Map.Entry<IBinder, IBinder.DeathRecipient> entry : activeSubscribers.entrySet()) {
+                try {
+                    entry.getKey().unlinkToDeath(entry.getValue(), 0);
+                } catch (Exception ignored) {}
+            }
+            activeSubscribers.clear();
+            subscriberCount = 0;
+            if (pollerInstance != null) {
+                reconcilePollerState(pollerInstance);
+            }
         }
-        activeSubscribers.clear();
-        subscriberCount = 0;
     }
 
     /**
@@ -136,17 +142,19 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         setPlaybackState(playing, title, artist, album, "", duration, progress, playing);
     }
 
-    public static synchronized void clearPlaybackState(Context context) {
-        mockMode = false;
-        isPlaying = false;
-        trackTitle = "";
-        artistName = "";
-        albumName = "";
-        spotifyUri = "";
-        durationMs = 0L;
-        progressMs = 0L;
-        hasAlbumArt = false;
-        updatedAt = System.currentTimeMillis();
+    public static void clearPlaybackState(Context context) {
+        synchronized (SpotifyNowPlayingProvider.class) {
+            mockMode = false;
+            isPlaying = false;
+            trackTitle = "";
+            artistName = "";
+            albumName = "";
+            spotifyUri = "";
+            durationMs = 0L;
+            progressMs = 0L;
+            hasAlbumArt = false;
+            updatedAt = System.currentTimeMillis();
+        }
         if (context != null) {
             File artFile = new File(context.getCacheDir(), "now_playing_art.png");
             if (artFile.exists()) {
@@ -186,7 +194,7 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         return new PlaybackSnapshot(isPlaying, trackTitle, artistName, albumName, spotifyUri, durationMs, progressMs, hasAlbumArt);
     }
 
-    public static synchronized int getSubscriberCount() {
+    public static int getSubscriberCount() {
         return subscriberCount;
     }
 
@@ -320,53 +328,63 @@ public class SpotifyNowPlayingProvider extends ContentProvider {
         }
     }
 
-    public static synchronized int handleSubscription(String method, IBinder token, SpotifyPoller poller) {
-        if (SpotifyContract.METHOD_SUBSCRIBE.equals(method)) {
-            if (token != null) {
-                if (!activeSubscribers.containsKey(token)) {
-                    IBinder.DeathRecipient recipient = () -> {
-                        synchronized (SpotifyNowPlayingProvider.class) {
-                            activeSubscribers.remove(token);
-                            subscriberCount = activeSubscribers.size();
-                            if (subscriberCount == 0 && poller != null) {
-                                poller.stop();
+    public static void reconcilePollerState(SpotifyPoller poller) {
+        if (poller == null) return;
+        synchronized (SUBSCRIPTION_LOCK) {
+            int current = subscriberCount;
+            if (current > 0) {
+                if (!poller.isRunning()) {
+                    poller.start();
+                }
+            } else {
+                if (poller.isRunning()) {
+                    poller.stop();
+                }
+            }
+        }
+    }
+
+    public static int handleSubscription(String method, IBinder token, SpotifyPoller poller) {
+        SpotifyPoller targetPoller = poller != null ? poller : pollerInstance;
+        synchronized (SUBSCRIPTION_LOCK) {
+            if (SpotifyContract.METHOD_SUBSCRIBE.equals(method)) {
+                if (token != null) {
+                    if (!activeSubscribers.containsKey(token)) {
+                        IBinder.DeathRecipient recipient = () -> {
+                            synchronized (SUBSCRIPTION_LOCK) {
+                                activeSubscribers.remove(token);
+                                subscriberCount = activeSubscribers.size();
+                                reconcilePollerState(targetPoller);
                             }
+                        };
+                        try {
+                            token.linkToDeath(recipient, 0);
+                            activeSubscribers.put(token, recipient);
+                        } catch (RemoteException e) {
+                            return subscriberCount;
                         }
-                    };
-                    try {
-                        token.linkToDeath(recipient, 0);
-                        activeSubscribers.put(token, recipient);
-                    } catch (RemoteException e) {
-                        return subscriberCount;
                     }
+                    subscriberCount = activeSubscribers.size();
+                } else {
+                    subscriberCount++;
                 }
-                subscriberCount = activeSubscribers.size();
-            } else {
-                subscriberCount++;
-            }
-            if (subscriberCount == 1 && poller != null) {
-                poller.start();
-            }
-            return subscriberCount;
-        } else if (SpotifyContract.METHOD_UNSUBSCRIBE.equals(method)) {
-            if (token != null) {
-                IBinder.DeathRecipient recipient = activeSubscribers.remove(token);
-                if (recipient != null) {
-                    try {
-                        token.unlinkToDeath(recipient, 0);
-                    } catch (Exception ignored) {
+            } else if (SpotifyContract.METHOD_UNSUBSCRIBE.equals(method)) {
+                if (token != null) {
+                    IBinder.DeathRecipient recipient = activeSubscribers.remove(token);
+                    if (recipient != null) {
+                        try {
+                            token.unlinkToDeath(recipient, 0);
+                        } catch (Exception ignored) {
+                        }
                     }
+                    subscriberCount = activeSubscribers.size();
+                } else {
+                    subscriberCount = Math.max(0, subscriberCount - 1);
                 }
-                subscriberCount = activeSubscribers.size();
-            } else {
-                subscriberCount = Math.max(0, subscriberCount - 1);
             }
-            if (subscriberCount == 0 && poller != null) {
-                poller.stop();
-            }
+            reconcilePollerState(targetPoller);
             return subscriberCount;
         }
-        return subscriberCount;
     }
 
     @Override
